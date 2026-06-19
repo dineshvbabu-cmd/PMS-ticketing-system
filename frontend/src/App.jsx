@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const PRIORITIES = ["Low", "Medium", "High", "Critical"];
@@ -17,6 +17,15 @@ const PRIORITY_COLOR = {
   "Medium": "bg-amber-100 text-amber-700",
   "High": "bg-orange-100 text-orange-700",
   "Critical": "bg-red-100 text-red-700",
+};
+
+const API = import.meta.env.VITE_API_URL || "";
+
+// ── API helpers ────────────────────────────────────────────────────────────
+const api = {
+  get: (path) => fetch(`${API}${path}`).then(r => r.json()),
+  post: (path, body) => fetch(`${API}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json()),
+  patch: (path, body) => fetch(`${API}${path}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json()),
 };
 
 // ── Claude API helper ──────────────────────────────────────────────────────
@@ -52,30 +61,8 @@ const MS365_SERVERS = [
 ];
 
 // ── Ticket ID generator ────────────────────────────────────────────────────
-let ticketCounter = 1000;
-const nextId = () => `TKT-${++ticketCounter}`;
-
-// ── Mock initial tickets ───────────────────────────────────────────────────
-const INITIAL_TICKETS = [
-  {
-    id: "TKT-1001", title: "Dashboard not loading for new users",
-    category: "Bug Report", priority: "High", status: "Open",
-    reporter: "priya.m@company.com", assignee: "support@pmsgroup.com",
-    created: "2026-06-17T09:30:00Z", updated: "2026-06-17T09:30:00Z",
-    description: "New users who joined last week cannot load the PM dashboard. Error: 403 Forbidden.",
-    comments: [],
-    sharepointRef: null, outlookRef: null,
-  },
-  {
-    id: "TKT-1002", title: "Feature: Export to Excel from Project View",
-    category: "Feature Request", priority: "Medium", status: "In Progress",
-    reporter: "raj.k@company.com", assignee: "support@pmsgroup.com",
-    created: "2026-06-15T14:00:00Z", updated: "2026-06-18T10:00:00Z",
-    description: "PMs need to export project data to Excel for weekly status reports.",
-    comments: [{ author: "support@pmsgroup.com", text: "Reviewing feasibility with dev team.", time: "2026-06-18T10:00:00Z" }],
-    sharepointRef: null, outlookRef: null,
-  },
-];
+let _counter = Date.now() % 9000 + 1000;
+const nextId = () => `TKT-${++_counter}`;
 
 // ── Sub-components ─────────────────────────────────────────────────────────
 function Badge({ label, colorClass }) {
@@ -106,7 +93,7 @@ function AIPanel({ ticket, onClose }) {
         );
       } else if (actionKey === "sharepoint") {
         text = await callClaude(
-          "You are a PMS Support assistant. Search SharePoint for relevant documentation and return a brief summary of what you find. If you use tools, summarize the findings for the ticket.",
+          "You are a PMS Support assistant. Search SharePoint for relevant documentation and return a brief summary of what you find.",
           `Search SharePoint for documents related to: "${ticket.title}" (category: ${ticket.category}). Summarize any relevant docs found.`,
           MS365_SERVERS
         );
@@ -132,7 +119,6 @@ function AIPanel({ ticket, onClose }) {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl flex flex-col max-h-[90vh]">
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <div>
             <p className="text-xs text-gray-400 font-mono">{ticket.id}</p>
@@ -140,8 +126,6 @@ function AIPanel({ ticket, onClose }) {
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl font-bold">&times;</button>
         </div>
-
-        {/* Action buttons */}
         <div className="grid grid-cols-2 gap-2 p-4 border-b">
           {[
             { key: "suggest", icon: "💡", label: "Suggest Fix" },
@@ -162,8 +146,6 @@ function AIPanel({ ticket, onClose }) {
             </button>
           ))}
         </div>
-
-        {/* Result area */}
         <div className="flex-1 overflow-y-auto p-4">
           {!result && !loading && (
             <p className="text-sm text-gray-400 text-center mt-6">Select an AI action above to get started.</p>
@@ -191,6 +173,7 @@ function NewTicketModal({ onClose, onSave }) {
   });
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -213,15 +196,15 @@ function NewTicketModal({ onClose, onSave }) {
     setAiLoading(false);
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (!form.title || !form.reporter) return;
-    const now = new Date().toISOString();
-    onSave({
-      id: nextId(), ...form,
-      status: "Open", created: now, updated: now,
-      comments: [], sharepointRef: null, outlookRef: null,
-    });
-    onClose();
+    setSaving(true);
+    try {
+      await onSave({ id: nextId(), ...form });
+      onClose();
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -231,7 +214,6 @@ function NewTicketModal({ onClose, onSave }) {
           <h2 className="font-bold text-gray-800">New Support Ticket</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl font-bold">&times;</button>
         </div>
-
         <div className="p-5 flex flex-col gap-3">
           <div>
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Title *</label>
@@ -239,14 +221,12 @@ function NewTicketModal({ onClose, onSave }) {
               className="w-full mt-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
               placeholder="Brief summary of the issue" />
           </div>
-
           <div>
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</label>
             <textarea value={form.description} onChange={e => set("description", e.target.value)}
               rows={3} className="w-full mt-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none"
               placeholder="Describe the issue in detail…" />
           </div>
-
           <button onClick={autoClassify} disabled={aiLoading}
             className="flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-sm font-medium py-2 rounded-lg transition">
             {aiLoading ? <><Spinner /> Classifying…</> : "✨ Auto-classify with AI"}
@@ -254,7 +234,6 @@ function NewTicketModal({ onClose, onSave }) {
           {aiSuggestion && (
             <p className="text-xs bg-indigo-50 text-indigo-700 rounded-lg px-3 py-2 border border-indigo-100">{aiSuggestion}</p>
           )}
-
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Category</label>
@@ -271,7 +250,6 @@ function NewTicketModal({ onClose, onSave }) {
               </select>
             </div>
           </div>
-
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Reporter Email *</label>
@@ -286,15 +264,14 @@ function NewTicketModal({ onClose, onSave }) {
                 placeholder="support@pmsgroup.com" type="email" />
             </div>
           </div>
-
           <div className="flex gap-2 pt-2">
             <button onClick={onClose}
               className="flex-1 border border-gray-200 text-gray-600 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition">
               Cancel
             </button>
-            <button onClick={submit} disabled={!form.title || !form.reporter}
+            <button onClick={submit} disabled={!form.title || !form.reporter || saving}
               className="flex-1 bg-blue-600 text-white py-2 rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 transition">
-              Create Ticket
+              {saving ? <><Spinner />Creating…</> : "Create Ticket"}
             </button>
           </div>
         </div>
@@ -307,21 +284,42 @@ function TicketDetail({ ticket, onClose, onUpdate }) {
   const [comment, setComment] = useState("");
   const [status, setStatus] = useState(ticket.status);
   const [aiPanel, setAiPanel] = useState(false);
+  const [notifying, setNotifying] = useState(false);
+  const [notifyMsg, setNotifyMsg] = useState("");
 
-  const addComment = () => {
+  const addComment = async () => {
     if (!comment.trim()) return;
-    const updated = {
-      ...ticket,
-      comments: [...ticket.comments, { author: "support@pmsgroup.com", text: comment, time: new Date().toISOString() }],
-      updated: new Date().toISOString(),
-    };
-    onUpdate(updated);
+    await api.post(`/api/tickets/${ticket.id}/comments`, {
+      author: "support@pmsgroup.com",
+      text: comment,
+    });
     setComment("");
+    onUpdate();
   };
 
-  const updateStatus = (s) => {
+  const updateStatus = async (s) => {
     setStatus(s);
-    onUpdate({ ...ticket, status: s, updated: new Date().toISOString() });
+    await api.patch(`/api/tickets/${ticket.id}`, { status: s });
+    onUpdate();
+  };
+
+  const sendToOutlook = async () => {
+    setNotifying(true);
+    setNotifyMsg("");
+    try {
+      const res = await api.post(`/api/tickets/${ticket.id}/notify`, {});
+      if (res.status === "sent") {
+        setNotifyMsg(res.outlookLinked
+          ? "✅ Email sent & ticket linked to Outlook. Replies will auto-sync every 5 min."
+          : "✅ Email sent (Outlook tracking unavailable — check Azure config).");
+      } else {
+        setNotifyMsg(`⚠️ ${res.detail || "Unknown error"}`);
+      }
+    } catch (e) {
+      setNotifyMsg("⚠️ Failed to send: " + e.message);
+    }
+    setNotifying(false);
+    onUpdate();
   };
 
   return (
@@ -333,19 +331,35 @@ function TicketDetail({ ticket, onClose, onUpdate }) {
             <div>
               <p className="text-xs text-gray-400 font-mono">{ticket.id}</p>
               <h2 className="font-bold text-gray-800 text-base leading-tight">{ticket.title}</h2>
-              <div className="flex gap-2 mt-1 flex-wrap">
+              <div className="flex gap-2 mt-1 flex-wrap items-center">
                 <Badge label={ticket.priority} colorClass={PRIORITY_COLOR[ticket.priority]} />
                 <Badge label={ticket.category} colorClass="bg-gray-100 text-gray-600" />
+                {ticket.outlookLinked && (
+                  <span className="text-xs bg-blue-50 text-blue-600 border border-blue-200 px-2 py-0.5 rounded-full font-medium">
+                    📧 Outlook linked
+                  </span>
+                )}
               </div>
             </div>
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2 items-center flex-wrap justify-end">
               <button onClick={() => setAiPanel(true)}
                 className="text-xs bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 px-3 py-1.5 rounded-lg font-medium transition">
                 ✨ AI Assist
               </button>
+              <button onClick={sendToOutlook} disabled={notifying || !ticket.assignee}
+                title={!ticket.assignee ? "Set an assignee first" : "Send to assignee Outlook & link for auto reply-sync"}
+                className="text-xs bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 px-3 py-1.5 rounded-lg font-medium transition disabled:opacity-40">
+                {notifying ? <><Spinner />Sending…</> : "📧 Assign & Notify"}
+              </button>
               <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl font-bold">&times;</button>
             </div>
           </div>
+
+          {notifyMsg && (
+            <div className="mx-5 mt-3 text-xs rounded-lg px-3 py-2 bg-green-50 border border-green-200 text-green-700">
+              {notifyMsg}
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
             {/* Status selector */}
@@ -365,7 +379,7 @@ function TicketDetail({ ticket, onClose, onUpdate }) {
             {/* Meta */}
             <div className="grid grid-cols-2 gap-2 text-xs text-gray-500 bg-gray-50 rounded-xl p-3">
               <div><span className="font-semibold">Reporter:</span> {ticket.reporter}</div>
-              <div><span className="font-semibold">Assignee:</span> {ticket.assignee}</div>
+              <div><span className="font-semibold">Assignee:</span> {ticket.assignee || "—"}</div>
               <div><span className="font-semibold">Created:</span> {new Date(ticket.created).toLocaleString()}</div>
               <div><span className="font-semibold">Updated:</span> {new Date(ticket.updated).toLocaleString()}</div>
             </div>
@@ -383,7 +397,7 @@ function TicketDetail({ ticket, onClose, onUpdate }) {
               </p>
               <div className="flex flex-col gap-2">
                 {ticket.comments.map((c, i) => (
-                  <div key={i} className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+                  <div key={i} className={`border rounded-xl p-3 ${c.text.startsWith("[Outlook]") ? "bg-blue-50 border-blue-100" : "bg-gray-50 border-gray-100"}`}>
                     <div className="flex justify-between text-xs text-gray-400 mb-1">
                       <span className="font-semibold text-blue-700">{c.author}</span>
                       <span>{new Date(c.time).toLocaleString()}</span>
@@ -418,12 +432,38 @@ function TicketDetail({ ticket, onClose, onUpdate }) {
 
 // ── Main App ───────────────────────────────────────────────────────────────
 export default function App() {
-  const [tickets, setTickets] = useState(INITIAL_TICKETS);
+  const [tickets, setTickets] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [selected, setSelected] = useState(null);
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterPriority, setFilterPriority] = useState("All");
   const [search, setSearch] = useState("");
+
+  const fetchTickets = useCallback(async () => {
+    try {
+      const data = await api.get("/api/tickets");
+      setTickets(Array.isArray(data) ? data : []);
+    } catch {
+      // backend unreachable — keep existing list
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTickets();
+    const id = setInterval(fetchTickets, 30_000);
+    return () => clearInterval(id);
+  }, [fetchTickets]);
+
+  const refreshSelected = useCallback(async () => {
+    await fetchTickets();
+    if (selected) {
+      const fresh = await api.get(`/api/tickets/${selected.id}`);
+      setSelected(fresh);
+    }
+  }, [fetchTickets, selected]);
 
   const stats = {
     open: tickets.filter(t => t.status === "Open").length,
@@ -438,26 +478,24 @@ export default function App() {
     const matchSearch = !search ||
       t.title.toLowerCase().includes(search.toLowerCase()) ||
       t.id.toLowerCase().includes(search.toLowerCase()) ||
-      t.reporter.toLowerCase().includes(search.toLowerCase());
+      (t.reporter || "").toLowerCase().includes(search.toLowerCase());
     return matchStatus && matchPriority && matchSearch;
   });
 
-  const addTicket = (t) => setTickets(ts => [t, ...ts]);
-  const updateTicket = (updated) => {
-    setTickets(ts => ts.map(t => t.id === updated.id ? updated : t));
-    if (selected?.id === updated.id) setSelected(updated);
+  const addTicket = async (t) => {
+    await api.post("/api/tickets", t);
+    await fetchTickets();
   };
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans">
-      {/* Top nav */}
       <header className="bg-white border-b shadow-sm sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">PM</div>
             <div>
               <h1 className="font-bold text-gray-800 text-sm leading-tight">PMS Support Portal</h1>
-              <p className="text-xs text-gray-400">Powered by SharePoint &amp; Outlook</p>
+              <p className="text-xs text-gray-400">Outlook-connected · auto-syncing every 5 min</p>
             </div>
           </div>
           <button onClick={() => setShowNew(true)}
@@ -468,7 +506,6 @@ export default function App() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-6 flex flex-col gap-5">
-        {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: "Open", value: stats.open, color: "text-blue-600", bg: "bg-blue-50" },
@@ -483,7 +520,6 @@ export default function App() {
           ))}
         </div>
 
-        {/* Filters */}
         <div className="bg-white rounded-2xl border p-4 flex flex-wrap gap-3 items-center">
           <input value={search} onChange={e => setSearch(e.target.value)}
             className="flex-1 min-w-48 border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
@@ -501,9 +537,13 @@ export default function App() {
           <span className="text-xs text-gray-400 ml-auto">{filtered.length} ticket{filtered.length !== 1 ? "s" : ""}</span>
         </div>
 
-        {/* Ticket list */}
         <div className="flex flex-col gap-2">
-          {filtered.length === 0 && (
+          {loading && (
+            <div className="text-center py-12 text-gray-400 text-sm flex items-center justify-center gap-2">
+              <Spinner /> Loading tickets…
+            </div>
+          )}
+          {!loading && filtered.length === 0 && (
             <div className="text-center py-12 text-gray-400 text-sm">No tickets match your filters.</div>
           )}
           {filtered.map(t => (
@@ -515,6 +555,7 @@ export default function App() {
                   <Badge label={t.status} colorClass={STATUS_COLOR[t.status]} />
                   <Badge label={t.priority} colorClass={PRIORITY_COLOR[t.priority]} />
                   <Badge label={t.category} colorClass="bg-gray-100 text-gray-500" />
+                  {t.outlookLinked && <span className="text-xs text-blue-500">📧</span>}
                 </div>
                 <p className="text-sm font-semibold text-gray-800 truncate group-hover:text-blue-700">{t.title}</p>
                 <p className="text-xs text-gray-400 mt-0.5">
@@ -527,9 +568,14 @@ export default function App() {
         </div>
       </main>
 
-      {/* Modals */}
       {showNew && <NewTicketModal onClose={() => setShowNew(false)} onSave={addTicket} />}
-      {selected && <TicketDetail ticket={selected} onClose={() => setSelected(null)} onUpdate={updateTicket} />}
+      {selected && (
+        <TicketDetail
+          ticket={selected}
+          onClose={() => setSelected(null)}
+          onUpdate={refreshSelected}
+        />
+      )}
     </div>
   );
 }
