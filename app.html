@@ -414,6 +414,41 @@ const ENGINEERS  = [
   {email:'c.borse@aships.co.uk',   name:'C. Borse',   initials:'CB', cls:'avatar avatar-CB'},
   {email:'d.babu@aships.co.uk',    name:'D. Babu',    initials:'DB', cls:'avatar avatar-DB'},
 ];
+// Vessel fleet per engineer — used for ticket assignment
+const VESSEL_MAP = {
+  'v.boppudi@aships.co.uk': [
+    'witham','dart','watson','moriarty','lausu','st. lady meenah','st lady meenah',
+    'westmore','montagu','rathbone','alkebulan','holmes','green eagle',
+    'um minami','oroshi','spas tiga','amyla','norte','platinum'
+  ],
+  'a.desingh@aships.co.uk': [
+    'bagshot','clyde','balham','bedford','buran','ostro','bise','bondi',
+    'bdp spirit','duke','annecy','windermere','ardmore','shamal','leste',
+    'bora','mfm aspis','mfm buckler','vardar'
+  ],
+  'c.borse@aships.co.uk': [
+    'woodstock','tf victoria','sherlock','bakerloo','san barth','berners',
+    'fatima zara','bryanston','laphroaig','hudson','pinarello','chapel',
+    'om borneo','bromley','karakaze','anambra','gongola','1um hakata','um hakata'
+  ],
+};
+function detectEngineerFromText(text){
+  const t=(text||'').toLowerCase();
+  // 1. Vessel name match — most reliable for fleet-based assignment
+  for(const [eng,vessels] of Object.entries(VESSEL_MAP)){
+    if(vessels.some(v=>t.includes(v)))return eng;
+  }
+  // 2. Engineer name hint in text
+  const nameHints=[
+    {e:'v.boppudi@aships.co.uk', h:['boppudi','vineeth']},
+    {e:'a.desingh@aships.co.uk', h:['desingh','arvindh','arvind']},
+    {e:'c.borse@aships.co.uk',   h:['borse','chetan']},
+    {e:'d.babu@aships.co.uk',    h:['d.babu','dinesh babu']},
+  ];
+  for(const {e,h} of nameHints){if(h.some(x=>t.includes(x)))return e;}
+  // 3. No match — D. Babu handles unassigned/admin tickets
+  return 'd.babu@aships.co.uk';
+}
 const CAT_META = {
   'Bug Report':      {icon:'B',bg:'#fef2f2',col:'#b91c1c'},
   'Vessel Support':  {icon:'V',bg:'#eff6ff',col:'#1d4ed8'},
@@ -602,22 +637,15 @@ async function fetchGroupEmails(groupId,afterDate){
 }
 
 function detectEngineer(email){
-  // Primary: exact match in TO field
+  // 1. Exact match on TO field
   const toList=(email.toRecipients||[]).map(r=>(r.emailAddress?.address||'').toLowerCase());
   for(const eng of ENGINEERS){if(toList.includes(eng.email.toLowerCase()))return eng.email;}
-  // Secondary: exact match in CC field
+  // 2. Exact match on CC field
   const ccList=(email.ccRecipients||[]).map(r=>(r.emailAddress?.address||'').toLowerCase());
   for(const eng of ENGINEERS){if(ccList.includes(eng.email.toLowerCase()))return eng.email;}
-  // Fallback: name hint in subject/body
-  const hints=[
-    {eng:ENGINEERS[0],h:['boppudi','vineeth','v.boppudi']},
-    {eng:ENGINEERS[1],h:['desingh','arvindh','arvind','a.desingh']},
-    {eng:ENGINEERS[2],h:['borse','c.borse']},
-    {eng:ENGINEERS[3],h:['babu','dinesh','d.babu']},
-  ];
+  // 3. Vessel name / name hint detection from subject + body
   const hay=((email.subject||'')+' '+(email.bodyPreview||'')+' '+(email.latestBody||'')).toLowerCase();
-  for(const {eng,h} of hints)if(h.some(x=>hay.includes(x)))return eng.email;
-  return ENGINEERS[0].email; // default: Vineeth
+  return detectEngineerFromText(hay);
 }
 
 // Status lifecycle:
@@ -789,12 +817,6 @@ document.addEventListener('visibilitychange',()=>{
 // Runs on page load and after every server refresh so DB staleness doesn't matter.
 function reClassifyTickets(){
   let changed=false;
-  const engHints=[
-    {eng:ENGINEERS[0], h:['boppudi','vineeth']},
-    {eng:ENGINEERS[1], h:['desingh','arvindh','arvind']},
-    {eng:ENGINEERS[2], h:['borse']},
-    {eng:ENGINEERS[3], h:['babu','dinesh']},
-  ];
   tickets.forEach(t=>{
     if(t.source!=='outlook') return;
     // Category — re-classify Other; also try to upgrade non-Other tickets to Report if they match
@@ -813,11 +835,10 @@ function reClassifyTickets(){
       const ns=t.category==='Report'?'Resolved':detectStatus(t.replyCount||0,t.latestBody||'',t.description||'',t.reporter||'',t.created||'');
       if(t.status!==ns){t.status=ns;changed=true;}
     }
-    // Engineer — check name hints in title + description + latestBody
+    // Engineer — vessel name match first, then name hints, then D. Babu
     if(!t.manualAssignee){
       const hay=((t.title||'')+' '+(t.description||'')+' '+(t.latestBody||'')).toLowerCase();
-      const found=engHints.find(({h})=>h.some(x=>hay.includes(x)));
-      const target=found?found.eng.email:ENGINEERS[0].email;
+      const target=detectEngineerFromText(hay);
       if(t.assignee!==target){t.assignee=target;changed=true;}
     }
   });
