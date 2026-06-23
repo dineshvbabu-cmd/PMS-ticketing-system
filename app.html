@@ -704,17 +704,23 @@ function detectEngineer(email){
 // In Progress → team replied but resolution not confirmed
 // Resolved   → team completed the task / engineer sent the email
 // Closed     → vessel acknowledged after resolution
-function detectStatus(replyCount, latestBody, description, reporter, created, category, subject){
+function detectStatus(replyCount, latestBody, description, reporter, created, category, subject, hasExternalRecipient){
   const last=(latestBody||'').toLowerCase();
   const desc=(description||'').toLowerCase();
   const subj=(subject||'').toLowerCase();
   const cat=(category||'').toLowerCase();
   const all=last+' '+desc;
 
-  // Rule 1: Internal sender (@aships.co.uk or known engineer) → outgoing mail → Resolved
+  // Rule 1: Internal sender (@aships.co.uk or known engineer)
   const rep=(reporter||'').toLowerCase();
-  if(ENGINEERS.some(e=>rep===e.email.toLowerCase())) return 'Resolved';
-  if(rep.endsWith('@aships.co.uk')) return 'Resolved';
+  const isInternal=ENGINEERS.some(e=>rep===e.email.toLowerCase())||rep.endsWith('@aships.co.uk');
+  if(isInternal){
+    // Pure internal email (no external recipients) = task done
+    if(!hasExternalRecipient) return 'Resolved';
+    // Engineer reached out to vessel (external recipient), no reply yet → waiting
+    if(replyCount===0) return 'In Progress';
+    // Engineer emailed vessel and there are replies — fall through to check resolution
+  }
 
   // Rule 2: No replies in group thread → Open (strictly — do not guess from age)
   if(replyCount===0) return 'Open';
@@ -833,7 +839,8 @@ async function triggerSync(isAuto){
       const ex=byRef[email.id];const now=new Date().toISOString();
       // Compute category first so detectStatus can use it for action-subject matching
       const _emailCat=ex?.manualCategory?ex.category:(ex?.category||detectCategory(email.subject||'',email.bodyPreview||'',email.from?.emailAddress?.address||''));
-      const autoStatus=_emailCat==='Report'?'Resolved':detectStatus(email.replyCount||0,email.latestBody||'',email.bodyPreview||'',email.from?.emailAddress?.address||'',email.receivedDateTime||'',_emailCat,email.subject||'');
+      const _hasExternal=[...(email.toRecipients||[]),...(email.ccRecipients||[])].map(r=>(r.emailAddress?.address||'').toLowerCase()).some(a=>a&&!a.endsWith('@aships.co.uk'));
+      const autoStatus=_emailCat==='Report'?'Resolved':detectStatus(email.replyCount||0,email.latestBody||'',email.bodyPreview||'',email.from?.emailAddress?.address||'',email.receivedDateTime||'',_emailCat,email.subject||'',_hasExternal);
       if(ex){
         let changed=false;
         if(!ex.manualStatus&&ex.status!==autoStatus){ex.status=autoStatus;changed=true;}
@@ -842,8 +849,8 @@ async function triggerSync(isAuto){
         if(changed){ex.updated=now;updated++;}
       }else{
         const c=cls[ni++]||{};
-        const _cat=c.category||_emailCat;const _finalStatus=_cat==='Report'?'Resolved':(_cat===_emailCat?autoStatus:detectStatus(email.replyCount||0,email.latestBody||'',email.bodyPreview||'',email.from?.emailAddress?.address||'',email.receivedDateTime||'',_cat,email.subject||''));
-        tickets.push({id:'TKT-'+Date.now()+'-'+Math.random().toString(36).slice(2,5),title:c.title||email.subject||'No Subject',description:email.bodyPreview||'',category:_cat,priority:c.priority||'Medium',status:_finalStatus,reporter:email.from?.emailAddress?.address||'unknown',assignee:detectEngineer(email),created:email.receivedDateTime||now,updated:now,lastReplyDate:email.lastReplyDate||now,latestBody:email.latestBody||'',replyCount:email.replyCount||0,comments:[],outlookRef:email.id,webLink:email.webLink||'',hasAttachments:email.hasAttachments||false,source:'outlook',manualStatus:false,thread:email.thread||[]});
+        const _cat=c.category||_emailCat;const _finalStatus=_cat==='Report'?'Resolved':(_cat===_emailCat?autoStatus:detectStatus(email.replyCount||0,email.latestBody||'',email.bodyPreview||'',email.from?.emailAddress?.address||'',email.receivedDateTime||'',_cat,email.subject||'',_hasExternal));
+        tickets.push({id:'TKT-'+Date.now()+'-'+Math.random().toString(36).slice(2,5),title:c.title||email.subject||'No Subject',description:email.bodyPreview||'',category:_cat,priority:c.priority||'Medium',status:_finalStatus,reporter:email.from?.emailAddress?.address||'unknown',assignee:detectEngineer(email),created:email.receivedDateTime||now,updated:now,lastReplyDate:email.lastReplyDate||now,latestBody:email.latestBody||'',replyCount:email.replyCount||0,comments:[],outlookRef:email.id,webLink:email.webLink||'',hasAttachments:email.hasAttachments||false,source:'outlook',manualStatus:false,externalRecipient:_hasExternal,thread:email.thread||[]});
         imported++;
       }
     }
@@ -872,7 +879,7 @@ async function triggerSync(isAuto){
               if(fresh.replyCount!==t.replyCount){t.replyCount=fresh.replyCount;changed=true;}
               if(fresh.latestBody&&fresh.latestBody!==t.latestBody){t.latestBody=fresh.latestBody;changed=true;}
               if(fresh.thread?.length>(t.thread?.length||0)){t.thread=fresh.thread;changed=true;}
-              const ns=t.category==='Report'?'Resolved':detectStatus(t.replyCount,t.latestBody||'',t.description||'',t.reporter||'',t.created||'',t.category||'',t.title||'');
+              const ns=t.category==='Report'?'Resolved':detectStatus(t.replyCount,t.latestBody||'',t.description||'',t.reporter||'',t.created||'',t.category||'',t.title||'',t.externalRecipient||false);
               if(t.status!==ns){t.status=ns;t.updated=new Date().toISOString();recheckUpdated++;changed=true;}
             }catch(e){console.warn('Recheck failed:',t.title,e.message);}
           }));
@@ -942,7 +949,7 @@ function reClassifyTickets(){
     }
     // Status — Report tickets are always Resolved (informational, no action needed)
     if(!t.manualStatus){
-      const ns=t.category==='Report'?'Resolved':detectStatus(t.replyCount||0,t.latestBody||'',t.description||'',t.reporter||'',t.created||'',t.category||'',t.title||'');
+      const ns=t.category==='Report'?'Resolved':detectStatus(t.replyCount||0,t.latestBody||'',t.description||'',t.reporter||'',t.created||'',t.category||'',t.title||'',t.externalRecipient||false);
       if(t.status!==ns){t.status=ns;changed=true;}
     }
     // Engineer — vessel name match first, then name hints, then D. Babu
