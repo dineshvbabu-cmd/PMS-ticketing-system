@@ -166,10 +166,12 @@ textarea.form-control{resize:vertical;min-height:80px}
   <button onclick="document.getElementById('sync-bar').style.display='none'" style="margin-left:auto;background:none;border:none;cursor:pointer;color:inherit;font-size:16px">x</button>
 </div>
 <main>
-  <div class="grid-3" style="margin-bottom:14px">
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:14px">
     <div class="stat-card" style="cursor:pointer" onclick="goToTickets({status:'Open'})" title="View Open tickets"><div class="stat-val" id="s-open" style="color:var(--blue)">0</div><div class="stat-label">Open</div></div>
     <div class="stat-card" style="cursor:pointer" onclick="goToTickets({status:'In Progress'})" title="View In Progress tickets"><div class="stat-val" id="s-inprog" style="color:var(--amber)">0</div><div class="stat-label">In Progress</div></div>
     <div class="stat-card" style="cursor:pointer" onclick="goToTickets({status:'Resolved'})" title="View Resolved tickets"><div class="stat-val" id="s-resolved" style="color:var(--green)">0</div><div class="stat-label">Resolved</div></div>
+    <div class="stat-card" style="cursor:pointer" onclick="goToTickets({status:'Closed'})" title="View Closed tickets"><div class="stat-val" id="s-closed" style="color:#64748b">0</div><div class="stat-label">Closed</div></div>
+    <div class="stat-card" title="Total tickets in date range"><div class="stat-val" id="s-total" style="color:#0f172a">0</div><div class="stat-label">Total</div></div>
   </div>
   <div class="card" style="margin-bottom:14px">
     <div class="section-title">Engineer Workload</div>
@@ -1139,7 +1141,9 @@ function renderAll(){const ft=filteredTickets();renderStats(ft);renderWorkload(f
 function renderStats(ft){
   document.getElementById('s-open').textContent=ft.filter(t=>t.status==='Open').length;
   document.getElementById('s-inprog').textContent=ft.filter(t=>t.status==='In Progress').length;
-  document.getElementById('s-resolved').textContent=ft.filter(t=>['Resolved','Closed'].includes(t.status)).length;
+  document.getElementById('s-resolved').textContent=ft.filter(t=>t.status==='Resolved').length;
+  document.getElementById('s-closed').textContent=ft.filter(t=>t.status==='Closed').length;
+  document.getElementById('s-total').textContent=ft.length;
 }
 function renderWorkload(ft){
   document.getElementById('workload-grid').innerHTML=ENGINEERS.map(eng=>{
