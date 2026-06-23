@@ -828,29 +828,56 @@ async function triggerSync(isAuto){
   try{
     const after=_after;
     let emails=[],src='',capturedGroupId=null;
+    let groupFetchFailed=false;
     try{
       setSyncBar('fetching','Finding PMS Support group...');
       let group=null;
       try{const gs=await gf(`/groups?$filter=mail eq 'pmslink.support@aships.co.uk'&$select=id,displayName,mail`);group=(gs.value||[])[0];}catch{}
       if(!group){const mg=await gf('/me/memberOf?$select=id,displayName,mail');group=(mg.value||[]).find(g=>g.mail?.toLowerCase().includes('pmslink'));}
       if(group){src=group.displayName;capturedGroupId=group.id;emails=await fetchGroupEmails(group.id,after);}
-    }catch(e){console.warn('Group fetch failed:',e.message);}
-    // Always search personal inbox for direct vessel emails (vessels sometimes bypass the group mailbox)
-    // Each engineer who signs in contributes their own direct emails to the shared DB
+      else{groupFetchFailed=true;console.warn('PMS Support group not found');}
+    }catch(e){groupFetchFailed=true;console.warn('Group fetch failed:',e.message);}
+    if(groupFetchFailed)toast('Group mailbox not accessible — falling back to inbox/sent search','error');
+    // Build a subject+date dedup set from group-captured emails (IDs are different namespaces)
+    const groupSubjDates=new Set(emails.map(e=>(e.subject||'').toLowerCase()+'|'+(e.receivedDateTime||'').slice(0,10)));
+    // Search personal inbox — include engineer-to-vessel emails (internal sender, external recipients)
+    // previously skipped all internal senders which missed engineer outbound emails not in group mailbox
     try{
-      setSyncBar('fetching','Checking personal inbox for direct vessel emails...');
+      setSyncBar('fetching','Checking personal inbox...');
       const pCutoff=new Date(after);
-      const groupIds=new Set(emails.map(e=>e.id));
       const pMails=await gfAll('/me/messages?$search="PMS"&$top=50&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,webLink,toRecipients,ccRecipients',3);
       pMails.forEach(e=>{
         if(new Date(e.receivedDateTime)<pCutoff) return;
         const sender=(e.from?.emailAddress?.address||'').toLowerCase();
-        if(sender.endsWith('@aships.co.uk')) return; // skip internal-to-internal
-        if(groupIds.has(e.id)) return; // already captured via group
+        const recipients=[...(e.toRecipients||[]),...(e.ccRecipients||[])];
+        const hasExternal=recipients.some(r=>!(r.emailAddress?.address||'').toLowerCase().endsWith('@aships.co.uk'));
+        // Skip purely internal emails (engineer-to-engineer, no vessel)
+        if(sender.endsWith('@aships.co.uk')&&!hasExternal) return;
+        // Dedup against group-captured emails by subject+date
+        const subjDate=(e.subject||'').toLowerCase()+'|'+((e.receivedDateTime||'').slice(0,10));
+        if(groupSubjDates.has(subjDate)) return;
+        groupSubjDates.add(subjDate); // prevent duplicates from personal search itself
         emails.push({id:e.id,subject:e.subject||'No Subject',from:e.from,receivedDateTime:e.receivedDateTime,lastReplyDate:e.receivedDateTime,bodyPreview:e.bodyPreview||'',latestBody:e.bodyPreview||'',replyCount:0,hasAttachments:e.hasAttachments||false,toRecipients:e.toRecipients||[],ccRecipients:e.ccRecipients||[],webLink:e.webLink||'',thread:[]});
       });
       if(!src&&emails.length)src='Personal inbox';
     }catch(e){console.warn('Personal inbox search failed:',e.message);}
+    // Also sweep Sent Items — captures engineer outbound emails to vessels (missed by group conversations)
+    try{
+      setSyncBar('fetching','Checking sent items...');
+      const sCutoff=new Date(after);
+      const sentMails=await gfAll('/me/mailFolders/SentItems/messages?$top=30&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,webLink,toRecipients,ccRecipients',2);
+      sentMails.forEach(e=>{
+        if(new Date(e.receivedDateTime)<sCutoff) return;
+        const recipients=[...(e.toRecipients||[]),...(e.ccRecipients||[])];
+        const hasExternal=recipients.some(r=>!(r.emailAddress?.address||'').toLowerCase().endsWith('@aships.co.uk'));
+        if(!hasExternal) return; // skip internal-only sent emails
+        const subjDate=(e.subject||'').toLowerCase()+'|'+((e.receivedDateTime||'').slice(0,10));
+        if(groupSubjDates.has(subjDate)) return;
+        groupSubjDates.add(subjDate);
+        emails.push({id:e.id,subject:e.subject||'No Subject',from:e.from,receivedDateTime:e.receivedDateTime,lastReplyDate:e.receivedDateTime,bodyPreview:e.bodyPreview||'',latestBody:e.bodyPreview||'',replyCount:0,hasAttachments:e.hasAttachments||false,toRecipients:e.toRecipients||[],ccRecipients:e.ccRecipients||[],webLink:e.webLink||'',thread:[]});
+      });
+      if(!src&&emails.length)src='Sent items';
+    }catch(e){console.warn('Sent items search failed:',e.message);}
     if(!emails.length){setSyncBar('done','No emails found');btn.disabled=false;scheduleAutoSync();return;}
     setSyncBar('classifying',`Processing ${emails.length} emails from ${src}...`);
     const byRef={};tickets.forEach(t=>{if(t.outlookRef)byRef[t.outlookRef]=t;});
