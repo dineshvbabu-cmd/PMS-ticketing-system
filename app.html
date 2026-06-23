@@ -690,22 +690,7 @@ function detectStatus(replyCount, latestBody, description, reporter, created, ca
   if(ENGINEERS.some(e=>rep===e.email.toLowerCase())) return 'Resolved';
   if(rep.endsWith('@aships.co.uk')) return 'Resolved';
 
-  // Rule 2: Action-request subjects — checked BEFORE the 0-reply gate because engineers
-  // often reply directly to the vessel from their personal inbox (bypassing the group mailbox),
-  // so the group thread shows 0 replies even though the ticket was handled.
-  // Pattern: "VESSEL // ADD IN PMS", "Addition of spares", "SPARE ADD IN PMS", etc.
-  // Matches any "VESSEL: X in PMS" or "VESSEL // X in PMS" format, plus explicit add/update keywords
-  const actionSubj=/\bin pms\b|\bfor pms\b|add.*pms|pms.*add|updat.*pms|pms.*updat|add.*spar|spar.*add|add.*job|job.*add|add.*component|add.*item|add.*inventory|add.*certif|add in pms|to add in pms|\/\/ add|\/\/ updat|pms.*spare|addition of|addition in|part.*addition|spare.*addition/;
-  if(cat==='vessel support'&&actionSubj.test(subj)){
-    if(replyCount>=1) return 'Resolved'; // reply visible in group thread
-    if(created){
-      const ageDays=(Date.now()-new Date(created).getTime())/86400000;
-      if(ageDays>0.75) return 'Resolved';  // >18 hours, no group reply → handled offline
-      if(ageDays>0.04) return 'In Progress'; // >1 hour → team received it, working
-    }
-  }
-
-  // Rule 3: No replies in group thread → genuinely Open
+  // Rule 2: No replies in group thread → Open (strictly — do not guess from age)
   if(replyCount===0) return 'Open';
 
   // Rule 4: Vessel confirmed after resolution → Closed
@@ -716,11 +701,15 @@ function detectStatus(replyCount, latestBody, description, reporter, created, ca
   const engNames=['boppudi','vineeth','desingh','arvindh','borse','chetan','d.babu','dinesh babu','pms engineer','senior pms'];
   if(replyCount>=1&&engNames.some(n=>tail.includes(n))) return 'Resolved';
 
-  // Rule 6: Explicit resolution language anywhere in combined thread text → Resolved
+  // Rule 6: Action-request subject (add/update in PMS, spare addition) + reply → Resolved
+  const actionSubj=/\bin pms\b|\bfor pms\b|add.*pms|pms.*add|updat.*pms|pms.*updat|add.*spar|spar.*add|add.*job|job.*add|add.*component|add.*item|add.*inventory|add.*certif|\/\/ add|\/\/ updat|pms.*spare|addition of|addition in|part.*addition|spare.*addition/;
+  if(cat==='vessel support'&&actionSubj.test(subj)&&replyCount>=1) return 'Resolved';
+
+  // Rule 7: Explicit resolution language anywhere in combined thread text → Resolved
   const resRe=/resolv|complet|been fix|has been (done|sorted|updated|attend|address|clos)|sorted|rectif|no further action|please let us know if|if you have any (further|question)|issue.*address|task.*done|able to (raise|proceed|submit)|you may proceed|please proceed|can now proceed|vessel.*confirm|inform.*vessel|requisition.*rais|has been inform|action.*taken|action.*complet|been process|updated.*vessel|vessel.*updated|\bdone\b|\bnoted\b|\bunderstood\b|will do|checked|verified|confirmed|updated in|corrected|fixed in|applied|closed in|actioned|forwarded to vessel|vessel.*informed|informed.*vessel|included in pms|added.*pms|pms.*added|added to (the )?system|has been added|have been added|included in (the )?system|added to (the )?module|updated (the )?pms|pms.*updated|added under|included under|screenshot.*for your reference|please find.*screenshot|screenshot.*attached|added.*ship store|ship store.*added/;
   if(resRe.test(all)) return 'Resolved';
 
-  // Rule 7: Age-based — team is responsive; most tickets close within days
+  // Rule 8: Age-based — team resolves most tickets within 2-3 days
   if(created){
     const ageDays=(Date.now()-new Date(created).getTime())/86400000;
     if(ageDays>2 &&replyCount>=1) return 'Resolved'; // 2+ days with any reply
@@ -740,8 +729,8 @@ function detectCategory(subject,body,from){
   if(/overdue.*report|report.*overdue|weekly.*report|daily.*report|monthly.*report|fortnightly.*report|consolidated.*report|report.*consolid|sync.*report|report.*sync|synchroni[sz].*report|synchroni[sz].*summary|pms.*sync|scheduled.*report|automated.*report|system.*generat|defect.*overdue|overdue.*job.*report|cbm.*report|report.*cbm|weekly.*overdue|overdue.*weekly|daily.*overdue|maintenance.*forecast|forecast.*maintenance|pending.*vessel|vessel.*pending|pms.*screenshot|screenshot.*pms|daily.*vessel.*sync|vessel.*sync.*summary|sync.*summary|not yet received.*vessel|vessel.*status.*update|maintenance.*status|jobs.*due.*report|critical.*jobs.*report|counter.*update.*reminder|update.*reminder.*counter|counter.*reminder|reminder.*counter|counter.*update|pms.*reminder|reminder.*pms/.test(t)) return 'Report';
   // Access Issue — login/password/user account problems (check before vessel to avoid false positives)
   if(/access|login|password|sign.?in|unable to log|cannot log|new user|create.*user|user.*creat|account|credential|unlock|forgot.*pass|reset.*pass|user.*setup|set up.*user/.test(t)) return 'Access Issue';
-  // Vessel Support — vessel/ship names (MV/MT/MS prefix) or PMS maintenance terms
-  if(/\bmv\b|\bmt\b|\bm\.v\b|\bm\.t\b|vessel|ship name|fleet|defect list|running hours?|certificate|class.*renewal|dry.*dock|planned maintenance|job order|overdue|component|inventory|pms.*vessel|vessel.*pms/.test(t)) return 'Vessel Support';
+  // Vessel Support — vessel/ship names, PMS maintenance terms, or spare/action requests
+  if(/\bmv\b|\bmt\b|\bm\.v\b|\bm\.t\b|vessel|ship name|fleet|defect list|running hours?|certificate|class.*renewal|dry.*dock|planned maintenance|job order|overdue|component|inventory|pms.*vessel|vessel.*pms|\bin pms\b|\bfor pms\b|\bspare\b|\bspares\b|spare.*part|lube.*oil|fuel.*tank|machinery|requisition/.test(t)) return 'Vessel Support';
   // Performance
   if(/slow|performance|speed|loading|timeout|lag|response.*time|hang|freeze|taking.*long|too long/.test(t)) return 'Performance';
   // Integration
@@ -908,12 +897,12 @@ function reClassifyTickets(){
   let changed=false;
   tickets.forEach(t=>{
     if(t.source!=='outlook') return;
-    // Category — re-classify Other; also try to upgrade non-Other tickets to Report if they match
+    // Category — re-classify if detection gives a different result.
+    // Allow any change EXCEPT downgrading a specific category to Other (avoids oscillation).
+    // This lets wrongly-classified Report tickets get corrected on page refresh.
     if(!t.manualCategory){
-      if(t.category==='Other'||t.category!=='Report'){
-        const nc=detectCategory(t.title,t.description,t.reporter||'');
-        if(nc!==t.category&&(t.category==='Other'||nc==='Report')){t.category=nc;changed=true;}
-      }
+      const nc=detectCategory(t.title,t.description,t.reporter||'');
+      if(nc!==t.category&&(nc!=='Other'||t.category==='Other')){t.category=nc;changed=true;}
     }
     // Priority
     if(!t.manualPriority&&t.priority==='Medium'){
