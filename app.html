@@ -350,8 +350,19 @@ let chartStatus=null, chartTime=null, autoSyncTimer=null, refreshTimer=null;
 
 const save   = (k,v)=>localStorage.setItem(k,JSON.stringify(v));
 const load   = (k,d)=>{try{return JSON.parse(localStorage.getItem(k)||'null')||d;}catch{return d;}};
-const saveTickets = ()=>save(STORAGE_KEY,tickets);
+const saveTickets = ()=>{
+  save(STORAGE_KEY,tickets);
+  const hosted=window.location.protocol==='https:'||(window.location.hostname&&window.location.hostname!=='localhost'&&!window.location.protocol.startsWith('file'));
+  if(hosted) fetch('/api/tickets/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(tickets)}).catch(()=>{});
+};
 const loadTickets = ()=>{tickets=load(STORAGE_KEY,[]); };
+async function loadTicketsFromServer(){
+  try{
+    const r=await fetch('/api/tickets');
+    if(r.ok){const d=await r.json();if(Array.isArray(d)&&d.length>0){tickets=d;save(STORAGE_KEY,tickets);return;}}
+  }catch(e){}
+  tickets=load(STORAGE_KEY,[]);
+}
 const saveCfg     = ()=>save(CFG_KEY,cfg);
 const loadCfg     = ()=>{cfg={...cfg,...(load(CFG_KEY,{})||{})};};
 const saveAuth    = ()=>save(AUTH_KEY,auth);
@@ -564,24 +575,29 @@ function checkAutoSync(){
   if(hrs>=24)setTimeout(()=>triggerSync(true),1500);else autoSyncTimer=setTimeout(()=>triggerSync(true),(24-hrs)*3600000);
 }
 
-function showApp(){
-  loadCfg();loadTickets();loadTokenUsage();
+async function showApp(){
+  loadCfg();loadTokenUsage();
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='';
   document.getElementById('user-badge').textContent='User: '+(auth.name||auth.upn||'User');
   document.getElementById('cfg-apikey').value=cfg.apiKey||'';
-  updateTokenUsageDisplay();setQuickRange(30);renderAll();scheduleRefresh();checkAutoSync();
+  updateTokenUsageDisplay();setQuickRange(30);
+  await loadTicketsFromServer();
+  renderAll();scheduleRefresh();checkAutoSync();
 }
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden&&auth.accessToken) loadTicketsFromServer().then(()=>renderAll());
+});
 
 function showTokenDetails(){alert(`Claude API Usage\n\nCalls: ${tokenUsage.calls}\nInput: ${tokenUsage.input.toLocaleString()} tokens\nOutput: ${tokenUsage.output.toLocaleString()} tokens\nEst. cost: ${tokenCost()}`);}
 
 window.onload=async()=>{
   loadAuth();loadCfg();
-  if(auth.accessToken&&Date.now()<auth.expiresAt-30000){showApp();return;}
+  if(auth.accessToken&&Date.now()<auth.expiresAt-30000){await showApp();return;}
   if(auth.accessToken&&localStorage.getItem('pms_client_id')){
     setLoginStatus('Restoring session...');
     document.getElementById('login-screen').style.display='flex';
-    const ok=await refreshAccessToken();if(ok){showApp();return;}
+    const ok=await refreshAccessToken();if(ok){await showApp();return;}
   }
   document.getElementById('login-screen').style.display='flex';setLoginStatus('');
 };
