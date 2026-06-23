@@ -568,13 +568,20 @@ function detectStatus(replyCount,latestBody){
 
 function detectCategory(subject,body){
   const t=((subject||'')+' '+(body||'')).toLowerCase();
-  if(/\b(bug|error|crash|fail|broken|not work|doesn.t work|incorrect|wrong result|glitch|malfunction)\b/.test(t)) return 'Bug Report';
-  if(/\b(vessel|ship|fleet|voyage|port|master|officer|imo|ais|maintenance record|defect list|class|survey|running hour|certificate|inventory|job order|pms module)\b/.test(t)) return 'Vessel Support';
-  if(/\b(feature request|enhancement|new report|new field|wish|would like|suggest|add.*option|new module|new functionality)\b/.test(t)) return 'Feature Request';
-  if(/\b(access|login|password|permission|account|credential|cannot log|unable to log|sign in|unlock|create.*user|reset.*password)\b/.test(t)) return 'Access Issue';
-  if(/\b(missing data|wrong data|data.*missing|data.*incorrect|export|import|sync.*data|data.*transfer|duplicate)\b/.test(t)) return 'Data Issue';
-  if(/\b(integration|api|connect|interface|third.party|erp|sap|module.*connect)\b/.test(t)) return 'Integration';
-  if(/\b(slow|performance|speed|loading|timeout|lag|response.*time|hang|freeze)\b/.test(t)) return 'Performance';
+  // Access Issue — login/password/user account problems (check before vessel to avoid false positives)
+  if(/access|login|password|sign.?in|unable to log|cannot log|new user|create.*user|user.*creat|account|credential|unlock|forgot.*pass|reset.*pass|user.*setup|set up.*user/.test(t)) return 'Access Issue';
+  // Vessel Support — vessel/ship names (MV/MT/MS prefix) or PMS maintenance terms
+  if(/\bmv\b|\bmt\b|\bm\.v\b|\bm\.t\b|vessel|ship name|fleet|defect list|running hours?|certificate|class.*renewal|dry.*dock|planned maintenance|job order|overdue|component|inventory|pms.*vessel|vessel.*pms/.test(t)) return 'Vessel Support';
+  // Performance
+  if(/slow|performance|speed|loading|timeout|lag|response.*time|hang|freeze|taking.*long|too long/.test(t)) return 'Performance';
+  // Integration
+  if(/integration|api\b|connect|interface|third.party|\berp\b|\bsap\b|module.*link|system.*connect/.test(t)) return 'Integration';
+  // Data Issue — data not matching/missing/wrong
+  if(/missing data|data.*missing|data.*incorrect|data.*wrong|not.*reflect|not.*show|not.*display|not.*updat|not.*appear|export|import|sync|duplicate|discrepan|mismatch|data.*transfer|wrong.*record/.test(t)) return 'Data Issue';
+  // Feature Request
+  if(/feature request|enhancement|new report|new field|would like|suggest|please add|please include|add.*option|new module|new functionality|request.*for/.test(t)) return 'Feature Request';
+  // Bug Report — errors/crashes/broken functionality
+  if(/bug|error|crash|fail|broken|not work|doesn.t work|incorrect|wrong|glitch|malfunction|issue.*with|problem.*with/.test(t)) return 'Bug Report';
   return 'Other';
 }
 
@@ -679,6 +686,17 @@ async function showApp(){
   document.getElementById('cfg-apikey').value=cfg.apiKey||'';
   updateTokenUsageDisplay();setQuickRange(30);
   await loadTicketsFromServer();
+  // Re-classify any tickets that ended up as Other (e.g. imported before API key was set)
+  let _reclassChanged=false;
+  tickets.forEach(t=>{
+    if(!t.manualCategory&&t.category==='Other'&&t.source==='outlook'){
+      const nc=detectCategory(t.title,t.description);if(nc!=='Other'){t.category=nc;_reclassChanged=true;}
+    }
+    if(!t.manualPriority&&t.priority==='Medium'&&t.source==='outlook'){
+      const np=detectPriority(t.title,t.description);if(np!=='Medium'){t.priority=np;_reclassChanged=true;}
+    }
+  });
+  if(_reclassChanged)saveTickets();
   renderAll();scheduleRefresh();checkAutoSync();
 }
 document.addEventListener('visibilitychange',()=>{
