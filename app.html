@@ -626,9 +626,7 @@ async function _processConv(groupId,conv){
     const fp=posts[0];if(!fp)return null;const lp=posts[posts.length-1];
     const allTo=[],allCc=[];
     posts.forEach(p=>{(p.toRecipients||[]).forEach(r=>allTo.push(r));(p.ccRecipients||[]).forEach(r=>allCc.push(r));(p.newParticipants||[]).forEach(r=>allTo.push(r));});
-    // Infer at least 1 reply if the conversation was updated after the first post
-    const hasRepliesInferred=new Date(conv.lastDeliveredDateTime)>new Date(fp.receivedDateTime||0);
-    const replyCount=posts.length>1?posts.length-1:(hasRepliesInferred?1:0);
+    const replyCount=posts.length>1?posts.length-1:0;
     // Gather all post bodies to give detectStatus more signal
     const allBodies=posts.map(p=>(p.body?.content||'').replace(/<[^>]+>/g,'').replace(/\s+/g,' ').slice(0,200)).join(' ');
     // Store thread posts for display in ticket modal (up to 10 posts, 600 chars each)
