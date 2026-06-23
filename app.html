@@ -316,11 +316,19 @@ textarea.form-control{resize:vertical;min-height:80px}
 </div>
 
 <script>
-// OAuth popup self-close: when Microsoft redirects the popup back to our URL,
-// relay the token to the parent window and close immediately.
+// OAuth popup self-close: relay auth result to opener and close.
 (function(){
-  if(window.opener && location.hash && location.hash.includes('access_token=')){
-    try{ window.opener.postMessage({pms_oauth: location.hash.slice(1)}, location.origin); }catch(e){}
+  if(!window.opener) return;
+  // PKCE: authorization code arrives as query param
+  const _p=new URLSearchParams(location.search);
+  const _code=_p.get('code'), _err=_p.get('error');
+  if(_code||_err){
+    try{window.opener.postMessage({pms_code:_code||null,pms_error:_err||null},location.origin);}catch(e){}
+    window.close(); return;
+  }
+  // Implicit fallback: token in hash (legacy)
+  if(location.hash&&location.hash.includes('access_token=')){
+    try{window.opener.postMessage({pms_oauth:location.hash.slice(1)},location.origin);}catch(e){}
     window.close();
   }
 })();
