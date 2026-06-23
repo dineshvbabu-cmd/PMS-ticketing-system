@@ -1097,7 +1097,7 @@ function openSettings(){
 function saveSettings(){cfg.apiKey=document.getElementById('cfg-apikey').value.trim();saveCfg();closeModal('settings-modal');toast('Settings saved','success');}
 function closeModal(id){document.getElementById(id).style.display='none';}
 function openNewTicket(){document.getElementById('new-ticket-modal').style.display='flex';}
-function switchTab(t,el){document.getElementById('tab-dashboard').style.display=t==='dashboard'?'':'none';document.getElementById('tab-tickets').style.display=t==='tickets'?'':'none';document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));el.classList.add('active');}
+function switchTab(t,el){document.getElementById('tab-dashboard').style.display=t==='dashboard'?'':'none';document.getElementById('tab-tickets').style.display=t==='tickets'?'':'none';document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));el.classList.add('active');if(t==='dashboard')renderAll();}
 
 function goToTickets(f){
   if(f.status!==undefined)document.getElementById('f-status').value=f.status||'';
