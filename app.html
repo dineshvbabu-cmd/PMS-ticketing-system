@@ -765,13 +765,13 @@ async function triggerSync(isAuto){
   setSyncBar('fetching',isAuto?'Auto-syncing...':(_isFirst?'First sync: loading 1 year of emails...':'Syncing new emails since last sync...'));
   try{
     const after=_after;
-    let emails=[],src='';
+    let emails=[],src='',capturedGroupId=null;
     try{
       setSyncBar('fetching','Finding PMS Support group...');
       let group=null;
       try{const gs=await gf(`/groups?$filter=mail eq 'pmslink.support@aships.co.uk'&$select=id,displayName,mail`);group=(gs.value||[])[0];}catch{}
       if(!group){const mg=await gf('/me/memberOf?$select=id,displayName,mail');group=(mg.value||[]).find(g=>g.mail?.toLowerCase().includes('pmslink'));}
-      if(group){src=group.displayName;emails=await fetchGroupEmails(group.id,after);}
+      if(group){src=group.displayName;capturedGroupId=group.id;emails=await fetchGroupEmails(group.id,after);}
     }catch(e){console.warn('Group fetch failed:',e.message);}
     if(!emails.length){
       try{
@@ -822,10 +822,43 @@ async function triggerSync(isAuto){
         imported++;
       }
     }
+    // Recheck stale Open/In-Progress tickets — re-fetch their thread from Outlook
+    // so tickets resolved since last sync window get their status updated
+    if(capturedGroupId){
+      const cutoff=new Date(Date.now()-90*86400000); // only last 90 days
+      const stale=tickets.filter(t=>
+        t.source==='outlook'&&!t.manualStatus&&
+        (t.status==='Open'||t.status==='In Progress')&&
+        t.outlookRef&&new Date(t.created)>cutoff
+      );
+      if(stale.length){
+        setSyncBar('fetching',`Rechecking ${stale.length} open/in-progress ticket${stale.length!==1?'s':''}...`);
+        let recheckUpdated=0;
+        // Process in batches of 4 to avoid rate-limiting
+        for(let i=0;i<stale.length;i+=4){
+          const batch=stale.slice(i,i+4);
+          setSyncBar('fetching',`Rechecking tickets ${i+1}–${Math.min(i+4,stale.length)} of ${stale.length}...`);
+          await Promise.all(batch.map(async t=>{
+            try{
+              const conv={id:t.outlookRef,topic:t.title,lastDeliveredDateTime:new Date().toISOString()};
+              const fresh=await _processConv(capturedGroupId,conv);
+              if(!fresh)return;
+              let changed=false;
+              if(fresh.replyCount!==t.replyCount){t.replyCount=fresh.replyCount;changed=true;}
+              if(fresh.latestBody&&fresh.latestBody!==t.latestBody){t.latestBody=fresh.latestBody;changed=true;}
+              if(fresh.thread?.length>(t.thread?.length||0)){t.thread=fresh.thread;changed=true;}
+              const ns=t.category==='Report'?'Resolved':detectStatus(t.replyCount,t.latestBody||'',t.description||'',t.reporter||'',t.created||'',t.category||'',t.title||'');
+              if(t.status!==ns){t.status=ns;t.updated=new Date().toISOString();recheckUpdated++;changed=true;}
+            }catch(e){console.warn('Recheck failed:',t.title,e.message);}
+          }));
+        }
+        if(recheckUpdated>0){updated+=recheckUpdated;}
+      }
+    }
     saveTickets();renderAll();
     const ls=new Date().toLocaleString();localStorage.setItem(SYNC_KEY,ls);
     document.getElementById('last-sync-label').textContent='Synced: '+ls;
-    setSyncBar('done',`${imported} new . ${updated} updated . ${emails.length} total`);
+    setSyncBar('done',`${imported} new · ${updated} updated`);
     if(!isAuto)toast(`${imported} new tickets, ${updated} updated`,'success');
     scheduleAutoSync();
   }catch(err){
