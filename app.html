@@ -36,6 +36,13 @@ main{max-width:1200px;margin:0 auto;padding:16px}
 .ticket-row{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:12px 16px;display:flex;align-items:flex-start;gap:12px;cursor:pointer;transition:.15s;margin-bottom:8px}
 .ticket-row:hover{border-color:#93c5fd;box-shadow:0 2px 8px rgba(37,99,235,.08)}
 .ticket-row.critical-row{border-left:3px solid var(--red)}
+.ticket-row.selected{background:#eff6ff;border-color:#93c5fd}
+.ticket-cb{width:16px;height:16px;cursor:pointer;accent-color:#3b82f6;flex-shrink:0;margin-top:3px}
+#bulk-bar{position:sticky;top:0;z-index:20;background:#1e40af;color:#fff;border-radius:12px;padding:10px 16px;display:none;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;box-shadow:0 4px 12px rgba(30,64,175,.3)}
+#bulk-bar select{border:none;border-radius:8px;padding:5px 10px;font-size:13px;color:#334155;background:#fff;cursor:pointer}
+#bulk-bar button{border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer}
+.btn-apply{background:#22c55e;color:#fff}.btn-apply:hover{background:#16a34a}
+.btn-clear{background:rgba(255,255,255,.2);color:#fff}.btn-clear:hover{background:rgba(255,255,255,.3)}
 .ticket-meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:4px}
 .ticket-title{font-weight:600;color:#0f172a;font-size:13px;margin-bottom:4px}
 .ticket-sub{font-size:11px;color:#94a3b8}
@@ -251,6 +258,21 @@ textarea.form-control{resize:vertical;min-height:80px}
       <select id="f-category" onchange="renderTicketList()"><option value="">All Categories</option><option>Bug Report</option><option>Vessel Support</option><option>Feature Request</option><option>Access Issue</option><option>Data Issue</option><option>Integration</option><option>Performance</option><option>Other</option></select>
       <span id="ticket-count" style="font-size:12px;color:#94a3b8;margin-left:auto"></span>
     </div>
+    <div id="bulk-bar">
+      <input type="checkbox" id="select-all" class="ticket-cb" onchange="toggleSelectAll(this.checked)" title="Select all visible tickets">
+      <span id="bulk-count" style="font-size:13px;font-weight:600;min-width:100px"></span>
+      <span style="opacity:.4;font-size:12px">│</span>
+      <span style="font-size:12px;opacity:.8">Set Status:</span>
+      <select id="bulk-status"><option value="">-- Status --</option><option>Open</option><option>In Progress</option><option>Pending</option><option>Resolved</option><option>Closed</option></select>
+      <span style="opacity:.4;font-size:12px">│</span>
+      <span style="font-size:12px;opacity:.8">Set Assignee:</span>
+      <select id="bulk-assignee"><option value="">-- Assignee --</option><option value="v.boppudi@aships.co.uk">V. Boppudi</option><option value="a.desingh@aships.co.uk">A. Desingh</option><option value="c.borse@aships.co.uk">C. Borse</option><option value="d.babu@aships.co.uk">D. Babu</option></select>
+      <span style="opacity:.4;font-size:12px">│</span>
+      <span style="font-size:12px;opacity:.8">Set Priority:</span>
+      <select id="bulk-priority"><option value="">-- Priority --</option><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select>
+      <button class="btn-apply" onclick="applyBulkUpdate()">Apply</button>
+      <button class="btn-clear" onclick="clearSelection()">✕ Clear</button>
+    </div>
     <div id="ticket-list"></div>
   </div>
 </main>
@@ -406,7 +428,7 @@ const PRI_BADGE={'Low':'badge-gray','Medium':'badge-amber','High':'badge-orange'
 
 let tickets=[], cfg={apiKey:''};
 let auth={accessToken:'',refreshToken:'',expiresAt:0,name:'',upn:''};
-let activeTicketId=null, activeCatFilter=null;
+let activeTicketId=null, activeCatFilter=null, selectedIds=new Set();
 let chartStatus=null, chartTime=null, autoSyncTimer=null, refreshTimer=null;
 
 const save   = (k,v)=>localStorage.setItem(k,JSON.stringify(v));
@@ -902,10 +924,12 @@ function renderTicketList(){
   const list=document.getElementById('ticket-list');
   const ft=filteredTickets().sort((a,b)=>new Date(b.created)-new Date(a.created));
   document.getElementById('ticket-count').textContent=ft.length+' ticket'+(ft.length!==1?'s':'');
-  if(!ft.length){list.innerHTML='<div style="text-align:center;padding:48px;color:#94a3b8">No tickets match your filters.</div>';return;}
+  if(!ft.length){list.innerHTML='<div style="text-align:center;padding:48px;color:#94a3b8">No tickets match your filters.</div>';updateBulkBar(ft);return;}
   list.innerHTML=ft.map(t=>{
     const eng=ENGINEERS.find(e=>e.email===t.assignee)||ENGINEERS[0];const m=CAT_META[t.category]||CAT_META['Other'];
-    return`<div class="ticket-row${t.priority==='Critical'?' critical-row':''}" onclick="openTicket('${t.id}')">
+    const sel=selectedIds.has(t.id);
+    return`<div class="ticket-row${t.priority==='Critical'?' critical-row':''}${sel?' selected':''}" onclick="openTicket('${t.id}')">
+      <input type="checkbox" class="ticket-cb" data-id="${t.id}" ${sel?'checked':''} onclick="event.stopPropagation()" onchange="toggleSelect('${t.id}',this.checked)">
       <div style="flex:1;min-width:0">
         <div class="ticket-meta">
           <span style="font-size:11px;font-family:monospace;color:#94a3b8">${t.id}</span>
@@ -921,6 +945,63 @@ function renderTicketList(){
       <span style="color:#cbd5e1;font-size:18px;flex-shrink:0">&rsaquo;</span>
     </div>`;
   }).join('');
+  updateBulkBar(ft);
+}
+
+function toggleSelect(id,checked){
+  if(checked)selectedIds.add(id);else selectedIds.delete(id);
+  const row=document.querySelector(`.ticket-cb[data-id="${id}"]`)?.closest('.ticket-row');
+  if(row)row.classList.toggle('selected',checked);
+  updateBulkBar();
+}
+
+function toggleSelectAll(checked){
+  document.querySelectorAll('.ticket-cb[data-id]').forEach(cb=>{
+    cb.checked=checked;
+    const id=cb.dataset.id;
+    if(checked)selectedIds.add(id);else selectedIds.delete(id);
+    cb.closest('.ticket-row')?.classList.toggle('selected',checked);
+  });
+  updateBulkBar();
+}
+
+function updateBulkBar(ft){
+  const n=selectedIds.size;
+  const bar=document.getElementById('bulk-bar');
+  bar.style.display=n>0?'flex':'none';
+  document.getElementById('bulk-count').textContent=n+' ticket'+(n!==1?'s':'')+' selected';
+  const cbs=document.querySelectorAll('.ticket-cb[data-id]');
+  const sa=document.getElementById('select-all');
+  if(sa)sa.checked=cbs.length>0&&n>=cbs.length;
+}
+
+function clearSelection(){
+  selectedIds.clear();
+  document.querySelectorAll('.ticket-cb[data-id]').forEach(cb=>{cb.checked=false;cb.closest('.ticket-row')?.classList.remove('selected');});
+  const sa=document.getElementById('select-all');if(sa)sa.checked=false;
+  updateBulkBar();
+}
+
+function applyBulkUpdate(){
+  const status=document.getElementById('bulk-status').value;
+  const assignee=document.getElementById('bulk-assignee').value;
+  const priority=document.getElementById('bulk-priority').value;
+  if(!status&&!assignee&&!priority){toast('Choose at least one field to update','error');return;}
+  const now=new Date().toISOString();let n=0;
+  tickets.forEach(t=>{
+    if(!selectedIds.has(t.id))return;
+    if(status){t.status=status;t.manualStatus=true;}
+    if(assignee){t.assignee=assignee;t.manualAssignee=true;}
+    if(priority){t.priority=priority;t.manualPriority=true;}
+    t.updated=now;n++;
+  });
+  saveTickets();
+  toast(`Updated ${n} ticket${n!==1?'s':''}. Status: ${status||'—'} Assignee: ${status||assignee?ENGINEERS.find(e=>e.email===assignee)?.name||'—':'—'} Priority: ${priority||'—'}`,'success');
+  document.getElementById('bulk-status').value='';
+  document.getElementById('bulk-assignee').value='';
+  document.getElementById('bulk-priority').value='';
+  clearSelection();
+  renderAll();
 }
 
 function openTicket(id){
