@@ -205,6 +205,13 @@ textarea.form-control{resize:vertical;min-height:80px}
       <div class="card"><div class="section-title">Status Breakdown</div><div class="chart-wrap"><canvas id="chart-status"></canvas></div></div>
       <div class="card"><div class="section-title">Tickets Over Time</div><div class="chart-wrap"><canvas id="chart-time"></canvas></div></div>
     </div>
+    <div class="card" id="vessel-sub-chart-card" style="margin-bottom:14px;display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div class="section-title" style="margin:0">Vessel Support — Issue Breakdown</div>
+        <span id="vessel-sub-clear" style="display:none;font-size:12px;color:var(--blue);cursor:pointer" onclick="activeVesselSubFilter=null;renderAll()">Clear sub-filter ×</span>
+      </div>
+      <div class="chart-wrap" style="height:200px"><canvas id="chart-vessel-sub"></canvas></div>
+    </div>
     <div class="card" style="margin-bottom:14px;padding:14px 18px">
       <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none" onclick="const b=document.getElementById('status-guide-body');const a=document.getElementById('status-guide-arrow');b.style.display=b.style.display==='none'?'':'none';a.textContent=b.style.display==='none'?'▸':'▾'">
         <span class="section-title" style="margin:0">Status Guide — How tickets move through the lifecycle</span>
@@ -476,8 +483,8 @@ const PRI_BADGE={'Low':'badge-gray','Medium':'badge-amber','High':'badge-orange'
 
 let tickets=[], cfg={apiKey:''};
 let auth={accessToken:'',refreshToken:'',expiresAt:0,name:'',upn:''};
-let activeTicketId=null, activeCatFilter=null, selectedIds=new Set();
-let chartStatus=null, chartTime=null, autoSyncTimer=null, refreshTimer=null;
+let activeTicketId=null, activeCatFilter=null, activeVesselSubFilter=null, selectedIds=new Set();
+let chartStatus=null, chartTime=null, chartVesselSub=null, autoSyncTimer=null, refreshTimer=null;
 
 const save   = (k,v)=>localStorage.setItem(k,JSON.stringify(v));
 const load   = (k,d)=>{try{return JSON.parse(localStorage.getItem(k)||'null')||d;}catch{return d;}};
@@ -1121,6 +1128,7 @@ function filteredTickets(){
   const fe=(document.getElementById('f-engineer')||{}).value||'';const fc=(document.getElementById('f-category')||{}).value||'';
   return tickets.filter(t=>{
     if(!inRange(t))return false;if(activeCatFilter&&t.category!==activeCatFilter)return false;
+    if(activeVesselSubFilter&&(t.vesselSupportType||'General')!==activeVesselSubFilter)return false;
     if(fs&&t.status!==fs)return false;if(fp&&t.priority!==fp)return false;if(fe&&t.assignee!==fe)return false;if(fc&&t.category!==fc)return false;
     if(s&&!t.title?.toLowerCase().includes(s)&&!t.id?.toLowerCase().includes(s)&&!t.reporter?.toLowerCase().includes(s))return false;
     return true;
@@ -1160,6 +1168,30 @@ function renderCharts(ft){
   if(chartTime)chartTime.destroy();
   chartTime=new Chart(document.getElementById('chart-time'),{type:'bar',data:{labels:months,datasets:[{label:'Tickets',data:months.map(m=>mMap[m]),backgroundColor:'#3b82f6',borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,onClick:(e,els)=>{if(els.length)goToTickets({month:months[els[0].index]});},plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
   document.getElementById('chart-time').style.cursor='pointer';
+  // Vessel Support sub-category chart — only when that category tile is active
+  const vsCard=document.getElementById('vessel-sub-chart-card');
+  if(activeCatFilter==='Vessel Support'){
+    const vsTickets=tickets.filter(t=>inRange(t)&&t.category==='Vessel Support');
+    const subTypes=['Spare Request','Requisition','Sync Issue','Job Order','Certificate','Counter Update','Defect','Data Update','General'];
+    const rawCounts=subTypes.map(s=>vsTickets.filter(t=>(t.vesselSupportType||'General')===s).length);
+    const labels=subTypes.filter((_,i)=>rawCounts[i]>0);
+    const data=rawCounts.filter(c=>c>0);
+    const colors=['#3b82f6','#8b5cf6','#f59e0b','#22c55e','#ec4899','#14b8a6','#f97316','#64748b','#94a3b8'];
+    const subTypeIndex=s=>subTypes.indexOf(s);
+    if(chartVesselSub)chartVesselSub.destroy();
+    chartVesselSub=new Chart(document.getElementById('chart-vessel-sub'),{
+      type:'bar',
+      data:{labels,datasets:[{label:'Tickets',data,backgroundColor:labels.map((l,i)=>activeVesselSubFilter===l?'#1d4ed8':colors[subTypeIndex(l)%colors.length]),borderRadius:6}]},
+      options:{responsive:true,maintainAspectRatio:false,onClick:(e,els)=>{if(els.length){activeVesselSubFilter=activeVesselSubFilter===labels[els[0].index]?null:labels[els[0].index];renderAll();}},plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.parsed.y} ticket${ctx.parsed.y!==1?'s':''}`}}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}
+    });
+    document.getElementById('chart-vessel-sub').style.cursor='pointer';
+    document.getElementById('vessel-sub-clear').style.display=activeVesselSubFilter?'':'none';
+    vsCard.style.display='';
+  }else{
+    vsCard.style.display='none';
+    if(chartVesselSub){chartVesselSub.destroy();chartVesselSub=null;}
+    activeVesselSubFilter=null;
+  }
 }
 function renderEngBreakdown(ft){
   document.getElementById('eng-breakdown').innerHTML=ENGINEERS.map(eng=>{
