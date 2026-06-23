@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PMS Support Ticketing</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f1f5f9;color:#1e293b;font-size:14px}
+:root{--blue:#2563eb;--green:#16a34a;--red:#dc2626;--amber:#d97706;--purple:#7c3aed}
+header{background:#fff;border-bottom:1px solid #e2e8f0;padding:12px 20px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.logo{width:36px;height:36px;background:var(--blue);border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:13px;flex-shrink:0}
+.header-title h1{font-size:15px;font-weight:700;color:#0f172a}
+.header-title p{font-size:11px;color:#64748b}
+.header-actions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+main{max-width:1200px;margin:0 auto;padding:16px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.15s}
+.btn-primary{background:var(--blue);color:#fff}.btn-primary:hover{background:#1d4ed8}
+.btn-secondary{background:#f8fafc;border:1px solid #e2e8f0;color:#475569}.btn-secondary:hover{background:#f1f5f9}
+.btn-red{background:#fee2e2;border:1px solid #fca5a5;color:#dc2626}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-sm{padding:5px 10px;font-size:12px;border-radius:8px}
+.card{background:#fff;border-radius:16px;border:1px solid #e2e8f0;padding:16px}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.stat-card{background:#fff;border-radius:14px;border:1px solid #e2e8f0;padding:14px}
+.stat-val{font-size:28px;font-weight:800}
+.stat-label{font-size:11px;color:#64748b;font-weight:600;margin-top:2px}
+.badge{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700}
+.badge-blue{background:#dbeafe;color:#1d4ed8}.badge-yellow{background:#fef9c3;color:#92400e}
+.badge-purple{background:#f3e8ff;color:#6d28d9}.badge-green{background:#dcfce7;color:#15803d}
+.badge-gray{background:#f1f5f9;color:#475569}.badge-red{background:#fee2e2;color:#b91c1c}
+.badge-orange{background:#ffedd5;color:#c2410c}.badge-amber{background:#fef3c7;color:#b45309}
+.ticket-row{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:12px 16px;display:flex;align-items:flex-start;gap:12px;cursor:pointer;transition:.15s;margin-bottom:8px}
+.ticket-row:hover{border-color:#93c5fd;box-shadow:0 2px 8px rgba(37,99,235,.08)}
+.ticket-row.critical-row{border-left:3px solid var(--red)}
+.ticket-meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:4px}
+.ticket-title{font-weight:600;color:#0f172a;font-size:13px;margin-bottom:4px}
+.ticket-sub{font-size:11px;color:#94a3b8}
+.avatar{width:22px;height:22px;border-radius:50%;background:var(--blue);color:#fff;font-size:10px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.avatar-AD{background:#7c3aed}.avatar-CB{background:#0891b2}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:200;padding:16px}
+.modal{background:#fff;border-radius:20px;width:100%;max-width:640px;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.modal-header{padding:18px 20px;border-bottom:1px solid #f1f5f9;display:flex;align-items:flex-start;justify-content:space-between}
+.modal-body{flex:1;overflow-y:auto;padding:20px}
+.modal-footer{padding:14px 20px;border-top:1px solid #f1f5f9;display:flex;gap:8px;justify-content:flex-end}
+.modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8}
+.form-group{margin-bottom:14px}
+.form-label{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;display:block}
+.form-control{width:100%;border:1px solid #e2e8f0;border-radius:10px;padding:8px 12px;font-size:13px;color:#334155;outline:none;font-family:inherit}
+.form-control:focus{border-color:#93c5fd}
+textarea.form-control{resize:vertical;min-height:80px}
+#toast{position:fixed;bottom:20px;right:20px;z-index:999;display:flex;flex-direction:column;gap:8px}
+.toast-item{background:#1e293b;color:#fff;padding:10px 16px;border-radius:12px;font-size:13px;font-weight:500;max-width:340px;animation:slideIn .2s ease}
+.toast-item.success{background:#15803d}.toast-item.error{background:#b91c1c}.toast-item.info{background:#1d4ed8}
+@keyframes slideIn{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
+#sync-bar{margin:8px 20px 0;padding:10px 16px;border-radius:12px;font-size:13px;font-weight:500;display:none;align-items:center;gap:8px}
+#sync-bar.fetching{background:#dbeafe;color:#1d4ed8;display:flex}
+#sync-bar.classifying{background:#ede9fe;color:#6d28d9;display:flex}
+#sync-bar.done{background:#dcfce7;color:#15803d;display:flex}
+#sync-bar.error{background:#fee2e2;color:#b91c1c;display:flex}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.chart-wrap{position:relative;height:200px}
+.workload-bar{height:6px;border-radius:3px;background:#e2e8f0;margin-top:6px;overflow:hidden}
+.workload-fill{height:100%;border-radius:3px;background:var(--blue);transition:.4s}
+.tabs{display:flex;border-bottom:2px solid #e2e8f0;margin-bottom:16px}
+.tab{padding:8px 16px;cursor:pointer;font-size:13px;font-weight:600;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-2px;transition:.15s}
+.tab.active{color:var(--blue);border-bottom-color:var(--blue)}
+.filters{background:#fff;border-radius:14px;border:1px solid #e2e8f0;padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.filters input,.filters select{border:1px solid #e2e8f0;border-radius:10px;padding:7px 12px;font-size:13px;color:#334155;outline:none}
+.filters input:focus,.filters select:focus{border-color:#93c5fd}
+.filters input{flex:1;min-width:200px}
+.comment{background:#f8fafc;border-radius:12px;padding:10px 14px;margin-bottom:8px}
+.comment-author{font-weight:700;font-size:12px;color:var(--blue)}
+.comment-time{font-size:11px;color:#94a3b8;margin-left:8px}
+.comment-text{font-size:13px;color:#334155;margin-top:4px}
+.status-pill{padding:4px 10px;border-radius:99px;border:1px solid #e2e8f0;font-size:11px;font-weight:600;cursor:pointer;color:#64748b;transition:.15s;display:inline-block;margin:2px}
+.status-pill:hover{background:#f1f5f9}.status-pill.active{background:#dbeafe;border-color:#93c5fd;color:#1d4ed8}
+.section-title{font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px}
+.cat-tile{border-radius:12px;padding:12px;cursor:pointer;transition:.15s;border:2px solid transparent}
+.cat-tile:hover{filter:brightness(.96)}.cat-tile.active{border-color:#2563eb}
+.ai-result{background:#f0f9ff;border:1px solid #bae6fd;border-radius:12px;padding:14px;font-size:13px;line-height:1.6;white-space:pre-wrap;color:#0c4a6e;max-height:280px;overflow-y:auto}
+.login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#1e3a8a 0%,#1d4ed8 50%,#3b82f6 100%)}
+.login-card{background:#fff;border-radius:24px;padding:40px;max-width:460px;width:100%;box-shadow:0 25px 80px rgba(0,0,0,.3);text-align:center}
+.login-logo{width:64px;height:64px;background:var(--blue);border-radius:16px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:22px;margin:0 auto 20px}
+.login-title{font-size:22px;font-weight:800;color:#0f172a;margin-bottom:8px}
+.login-sub{font-size:14px;color:#64748b;margin-bottom:28px;line-height:1.6}
+.ms-login-btn{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;padding:14px;background:#fff;border:2px solid #e2e8f0;border-radius:12px;font-size:15px;font-weight:700;color:#1e293b;cursor:pointer;transition:.15s;text-decoration:none}
+.ms-login-btn:hover{border-color:#2563eb;background:#eff6ff;color:#1d4ed8}
+.ms-login-btn svg{flex-shrink:0}
+.login-note{font-size:11px;color:#94a3b8;margin-top:16px;line-height:1.6}
+@media(max-width:700px){.grid-4{grid-template-columns:repeat(2,1fr)}.grid-3{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div id="login-screen" class="login-screen" style="display:none">
+  <div class="login-card">
+    <div class="login-logo">PM</div>
+    <h1 class="login-title">PMS Support Portal</h1>
+    <p class="login-sub">Sign in with your Microsoft 365 account to access the ticketing system and sync emails from the PMS Support Group mailbox.</p>
+    <button class="ms-login-btn" onclick="loginWithMicrosoft()">
+      <svg width="21" height="21" viewBox="0 0 21 21"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
+      Sign in with Microsoft 365
+    </button>
+    <div id="login-status" style="margin-top:16px;font-size:13px;color:#64748b;min-height:20px"></div>
+    <p class="login-note">Your credentials are handled entirely by Microsoft.<br>This app only reads your PMS Support Group emails.</p>
+    <div id="setup-section" style="display:none;margin-top:20px;text-align:left;background:#f8fafc;border-radius:12px;padding:16px">
+      <p style="font-size:12px;font-weight:700;color:#374151;margin-bottom:8px">First-time setup - enter App Client ID:</p>
+      <input type="text" id="client-id-input" class="form-control" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="margin-bottom:8px">
+      <button class="btn btn-primary" style="width:100%" onclick="saveClientIdAndLogin()">Continue</button>
+      <p style="font-size:11px;color:#94a3b8;margin-top:8px">Ask your IT admin for the Azure App Client ID.</p>
+      <details style="margin-top:8px">
+        <summary style="font-size:11px;cursor:pointer;color:#2563eb;font-weight:600">How to get Client ID (IT admin, 3 min)</summary>
+        <div style="font-size:11px;color:#475569;line-height:1.8;margin-top:8px">
+          1. portal.azure.com - App registrations - New registration<br>
+          2. Name: <b>PMS Ticketing</b> | Type: <b>This org only</b><br>
+          3. Redirect URI: <b>Single-page app</b> - your Railway URL<br>
+          4. Register - copy Application (client) ID<br>
+          5. API Permissions - Add - Graph - Delegated:<br>
+          &nbsp;&nbsp;&nbsp;<b>Group.Read.All, Mail.Read, offline_access, openid, profile</b><br>
+          6. Grant admin consent
+        </div>
+      </details>
+    </div>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+<header>
+  <div class="logo">PM</div>
+  <div class="header-title">
+    <h1>PMS Support Portal</h1>
+    <p id="mailbox-status" style="color:#16a34a">pmslink.support@aships.co.uk</p>
+  </div>
+  <div class="header-actions">
+    <span id="user-badge" style="font-size:12px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;padding:4px 10px;color:#475569"></span>
+    <span id="token-usage-badge" style="font-size:11px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:4px 10px;color:#15803d;cursor:pointer" onclick="showTokenDetails()" title="Click for usage details"></span>
+    <span id="last-sync-label" style="font-size:11px;color:#94a3b8;white-space:nowrap"></span>
+    <button class="btn btn-secondary btn-sm" onclick="openSettings()">Settings</button>
+    <button class="btn btn-secondary btn-sm" id="sync-btn" onclick="triggerSync(false)">Sync Now</button>
+    <button class="btn btn-primary btn-sm" onclick="openNewTicket()">+ New Ticket</button>
+    <button class="btn btn-secondary btn-sm" onclick="exportCSV()">CSV</button>
+    <button class="btn btn-secondary btn-sm" onclick="signOut()" style="color:#dc2626">Sign out</button>
+  </div>
+</header>
+<div id="sync-bar">
+  <span class="spin"></span>
+  <span id="sync-msg"></span>
+  <button onclick="document.getElementById('sync-bar').style.display='none'" style="margin-left:auto;background:none;border:none;cursor:pointer;color:inherit;font-size:16px">x</button>
+</div>
+<main>
+  <div class="grid-4" style="margin-bottom:14px">
+    <div class="stat-card"><div class="stat-val" id="s-open" style="color:var(--blue)">0</div><div class="stat-label">Open</div></div>
+    <div class="stat-card"><div class="stat-val" id="s-inprog" style="color:var(--amber)">0</div><div class="stat-label">In Progress</div></div>
+    <div class="stat-card"><div class="stat-val" id="s-resolved" style="color:var(--green)">0</div><div class="stat-label">Resolved</div></div>
+    <div class="stat-card"><div class="stat-val" id="s-critical" style="color:var(--red)">0</div><div class="stat-label">Critical</div></div>
+  </div>
+  <div class="card" style="margin-bottom:14px">
+    <div class="section-title">Engineer Workload</div>
+    <div class="grid-3" id="workload-grid"></div>
+  </div>
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('dashboard',this)">Dashboard</div>
+    <div class="tab" onclick="switchTab('tickets',this)">Tickets</div>
+  </div>
+  <div id="tab-dashboard">
+    <div class="card" style="margin-bottom:14px">
+      <div class="section-title">Date Range</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <label style="font-size:12px;font-weight:600;color:#64748b">From</label>
+        <input type="date" id="filter-from" class="form-control" style="width:160px" onchange="renderAll()">
+        <label style="font-size:12px;font-weight:600;color:#64748b">To</label>
+        <input type="date" id="filter-to" class="form-control" style="width:160px" onchange="renderAll()">
+        <button class="btn btn-secondary btn-sm" onclick="setQuickRange(7)">7d</button>
+        <button class="btn btn-secondary btn-sm" onclick="setQuickRange(30)">30d</button>
+        <button class="btn btn-secondary btn-sm" onclick="setQuickRange(90)">90d</button>
+        <button class="btn btn-secondary btn-sm" onclick="setQuickRange(180)">6mo</button>
+        <button class="btn btn-secondary btn-sm" onclick="setQuickRange(365)">1yr</button>
+        <button class="btn btn-secondary btn-sm" onclick="clearRange()">All time</button>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div class="section-title" style="margin:0">Tickets by Category</div>
+        <span id="active-cat-clear" style="display:none;font-size:12px;color:var(--blue);cursor:pointer" onclick="activeCatFilter=null;renderAll()">Clear filter x</span>
+      </div>
+      <div class="grid-4" id="cat-tiles"></div>
+    </div>
+    <div class="grid-2" style="margin-bottom:14px">
+      <div class="card"><div class="section-title">Status Breakdown</div><div class="chart-wrap"><canvas id="chart-status"></canvas></div></div>
+      <div class="card"><div class="section-title">Tickets Over Time</div><div class="chart-wrap"><canvas id="chart-time"></canvas></div></div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="section-title">Engineer Breakdown</div>
+      <div class="grid-3" id="eng-breakdown"></div>
+    </div>
+  </div>
+  <div id="tab-tickets" style="display:none">
+    <div class="filters">
+      <input type="text" id="search" placeholder="Search tickets..." oninput="renderTicketList()">
+      <select id="f-status" onchange="renderTicketList()"><option value="">All Status</option><option>Open</option><option>In Progress</option><option>Pending</option><option>Resolved</option><option>Closed</option></select>
+      <select id="f-priority" onchange="renderTicketList()"><option value="">All Priority</option><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select>
+      <select id="f-engineer" onchange="renderTicketList()"><option value="">All Engineers</option><option value="v.boppudi@aships.co.uk">V. Boppudi</option><option value="a.desingh@aships.co.uk">A. Desingh</option><option value="c.borse@aships.co.uk">C. Borse</option></select>
+      <select id="f-category" onchange="renderTicketList()"><option value="">All Categories</option><option>Bug Report</option><option>Vessel Support</option><option>Feature Request</option><option>Access Issue</option><option>Data Issue</option><option>Integration</option><option>Performance</option><option>Other</option></select>
+      <span id="ticket-count" style="font-size:12px;color:#94a3b8;margin-left:auto"></span>
+    </div>
+    <div id="ticket-list"></div>
+  </div>
+</main>
+</div>
+
+<div id="toast"></div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settings-modal" style="display:none">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header"><h2 style="font-size:16px;font-weight:700">Settings</h2><button class="modal-close" onclick="closeModal('settings-modal')">x</button></div>
+    <div class="modal-body">
+      <div class="form-group" id="apikey-group">
+        <label class="form-label">Anthropic API Key (for AI classification)</label>
+        <input type="password" class="form-control" id="cfg-apikey" placeholder="sk-ant-...">
+        <p style="font-size:11px;color:#94a3b8;margin-top:4px" id="apikey-note">Stored locally only. Get from <a href="https://console.anthropic.com" target="_blank" style="color:var(--blue)">console.anthropic.com</a></p>
+      </div>
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px;margin-bottom:14px">
+        <div style="font-size:12px;font-weight:700;color:#15803d;margin-bottom:4px">Auto-Sync Every 24 Hours</div>
+        <div style="font-size:11px;color:#166534">Fetches 1 full year of emails. Status updated automatically from thread replies.</div>
+      </div>
+      <div style="background:#fef9c3;border:1px solid #fde047;border-radius:10px;padding:12px">
+        <div style="font-size:12px;font-weight:700;color:#78350f;margin-bottom:6px">PMS Engineers</div>
+        <div style="font-size:12px;color:#451a03;line-height:1.8">
+          <b>VB</b> - v.boppudi@aships.co.uk<br>
+          <b>AD</b> - a.desingh@aships.co.uk<br>
+          <b>CB</b> - c.borse@aships.co.uk<br>
+          <b>DB</b> - d.babu@aships.co.uk (sync account)
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('settings-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Ticket Detail Modal -->
+<div class="modal-overlay" id="ticket-modal" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <div style="flex:1;min-width:0;padding-right:10px">
+        <div id="tm-meta" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px"></div>
+        <h2 id="tm-title" style="font-size:15px;font-weight:700;color:#0f172a"></h2>
+      </div>
+      <div style="display:flex;gap:6px;align-items:flex-start;flex-shrink:0">
+        <button class="btn btn-secondary btn-sm" onclick="openAiPanel()">AI Assist</button>
+        <a id="tm-outlook-link" href="#" target="_blank" class="btn btn-secondary btn-sm" style="display:none">Outlook</a>
+        <button class="modal-close" onclick="closeModal('ticket-modal')">x</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:14px"><div class="section-title">Status</div><div id="tm-statuses"></div></div>
+      <div class="grid-2" style="margin-bottom:14px;gap:10px">
+        <div><div class="section-title">Reporter</div><div id="tm-reporter" style="font-size:13px"></div></div>
+        <div><div class="section-title">Assignee</div><select id="tm-assignee" class="form-control" style="font-size:13px" onchange="updateTicketField('assignee',this.value)"><option value="v.boppudi@aships.co.uk">V. Boppudi</option><option value="a.desingh@aships.co.uk">A. Desingh</option><option value="c.borse@aships.co.uk">C. Borse</option></select></div>
+        <div><div class="section-title">Priority</div><select id="tm-priority" class="form-control" style="font-size:13px" onchange="updateTicketField('priority',this.value)"><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select></div>
+        <div><div class="section-title">Category</div><select id="tm-category" class="form-control" style="font-size:13px" onchange="updateTicketField('category',this.value)"><option>Bug Report</option><option>Vessel Support</option><option>Feature Request</option><option>Access Issue</option><option>Data Issue</option><option>Integration</option><option>Performance</option><option>Other</option></select></div>
+        <div><div class="section-title">Created</div><div id="tm-created" style="font-size:13px"></div></div>
+        <div><div class="section-title">Replies</div><div id="tm-replies" style="font-size:13px"></div></div>
+      </div>
+      <div style="margin-bottom:14px"><div class="section-title">Description</div><div id="tm-desc" style="background:#f8fafc;border-radius:10px;padding:12px;font-size:13px;white-space:pre-wrap;line-height:1.6"></div></div>
+      <div id="ai-section" style="display:none;margin-bottom:14px">
+        <div class="section-title">AI Assist</div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm" onclick="runAI('suggest')">Suggest Fix</button>
+          <button class="btn btn-secondary btn-sm" onclick="runAI('email')">Draft Reply</button>
+          <button class="btn btn-secondary btn-sm" onclick="runAI('related')">Related</button>
+        </div>
+        <div id="ai-result" class="ai-result" style="display:none"></div>
+      </div>
+      <div>
+        <div class="section-title">Comments (<span id="tm-comment-count">0</span>)</div>
+        <div id="tm-comments"></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <input type="text" id="new-comment" class="form-control" placeholder="Add comment..." onkeydown="if(event.key==='Enter')postComment()">
+          <button class="btn btn-primary btn-sm" onclick="postComment()">Post</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New Ticket Modal -->
+<div class="modal-overlay" id="new-ticket-modal" style="display:none">
+  <div class="modal" style="max-width:500px">
+    <div class="modal-header"><h2 style="font-size:16px;font-weight:700">New Ticket</h2><button class="modal-close" onclick="closeModal('new-ticket-modal')">x</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label class="form-label">Title *</label><input type="text" class="form-control" id="nt-title" placeholder="Brief summary"></div>
+      <div class="form-group"><label class="form-label">Description</label><textarea class="form-control" id="nt-desc" placeholder="Describe in detail..."></textarea></div>
+      <button class="btn btn-secondary" style="width:100%;margin-bottom:10px" onclick="aiClassifyNew()">Auto-classify with AI</button>
+      <div id="nt-ai-hint" style="font-size:12px;color:#6d28d9;display:none;padding:8px 12px;background:#f3e8ff;border-radius:8px;margin-bottom:10px"></div>
+      <div class="grid-2" style="gap:10px">
+        <div class="form-group"><label class="form-label">Category</label><select class="form-control" id="nt-category"><option>Bug Report</option><option>Vessel Support</option><option>Feature Request</option><option>Access Issue</option><option>Data Issue</option><option>Integration</option><option>Performance</option><option>Other</option></select></div>
+        <div class="form-group"><label class="form-label">Priority</label><select class="form-control" id="nt-priority"><option>Low</option><option selected>Medium</option><option>High</option><option>Critical</option></select></div>
+        <div class="form-group"><label class="form-label">Reporter *</label><input type="email" class="form-control" id="nt-reporter" placeholder="user@company.com"></div>
+        <div class="form-group"><label class="form-label">Assignee</label><select class="form-control" id="nt-assignee"><option value="v.boppudi@aships.co.uk">V. Boppudi</option><option value="a.desingh@aships.co.uk">A. Desingh</option><option value="c.borse@aships.co.uk">C. Borse</option></select></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('new-ticket-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="createTicket()">Create Ticket</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const _CFG      = window.__PMS_CONFIG || {};
+const TENANT_ID = _CFG.TENANT_ID  || localStorage.getItem('pms_tenant_id') || '1cc66e95-37e4-4d07-ac81-5d31f8ad941b';
+const CLIENT_ID_SERVER = _CFG.CLIENT_ID || '';
+const ANTHROPIC_KEY_SERVER = _CFG.ANTHROPIC_KEY || '';
+const APP_URL   = _CFG.APP_URL    || window.location.origin;
+const STORAGE_KEY= 'pms_tickets_v3';
+const CFG_KEY    = 'pms_config_v2';
+const AUTH_KEY   = 'pms_auth_v1';
+const SYNC_KEY   = 'pms_last_sync_v1';
+const ENGINEERS  = [
+  {email:'v.boppudi@aships.co.uk', name:'V. Boppudi', initials:'VB', cls:'avatar'},
+  {email:'a.desingh@aships.co.uk', name:'A. Desingh', initials:'AD', cls:'avatar avatar-AD'},
+  {email:'c.borse@aships.co.uk',   name:'C. Borse',   initials:'CB', cls:'avatar avatar-CB'},
+];
+const CAT_META = {
+  'Bug Report':      {icon:'B',bg:'#fef2f2',col:'#b91c1c'},
+  'Vessel Support':  {icon:'V',bg:'#eff6ff',col:'#1d4ed8'},
+  'Feature Request': {icon:'F',bg:'#faf5ff',col:'#6d28d9'},
+  'Access Issue':    {icon:'A',bg:'#fff7ed',col:'#c2410c'},
+  'Data Issue':      {icon:'D',bg:'#fefce8',col:'#a16207'},
+  'Integration':     {icon:'I',bg:'#ecfeff',col:'#0e7490'},
+  'Performance':     {icon:'P',bg:'#f0fdf4',col:'#15803d'},
+  'Other':           {icon:'O',bg:'#f8fafc',col:'#475569'},
+};
+const STATUS_BADGE={'Open':'badge-blue','In Progress':'badge-yellow','Pending':'badge-purple','Resolved':'badge-green','Closed':'badge-gray'};
+const PRI_BADGE={'Low':'badge-gray','Medium':'badge-amber','High':'badge-orange','Critical':'badge-red'};
+
+let tickets=[], cfg={apiKey:''};
+let auth={accessToken:'',refreshToken:'',expiresAt:0,name:'',upn:''};
+let activeTicketId=null, activeCatFilter=null;
+let chartStatus=null, chartTime=null, autoSyncTimer=null, refreshTimer=null;
+
+const save   = (k,v)=>localStorage.setItem(k,JSON.stringify(v));
+const load   = (k,d)=>{try{return JSON.parse(localStorage.getItem(k)||'null')||d;}catch{return d;}};
+const saveTickets = ()=>save(STORAGE_KEY,tickets);
+const loadTickets = ()=>{tickets=load(STORAGE_KEY,[]); };
+const saveCfg     = ()=>save(CFG_KEY,cfg);
+const loadCfg     = ()=>{cfg={...cfg,...(load(CFG_KEY,{})||{})};};
+const saveAuth    = ()=>save(AUTH_KEY,auth);
+const loadAuth    = ()=>{auth={...auth,...(load(AUTH_KEY,{})||{})};};
+
+const REDIRECT_URI = (window.__PMS_CONFIG && window.__PMS_CONFIG.REDIRECT_URI) || window.location.origin;
+
+function setLoginStatus(msg){const el=document.getElementById('login-status');if(el)el.textContent=msg;}
+
+async function loginWithMicrosoft(){
+  const clientId=CLIENT_ID_SERVER||localStorage.getItem('pms_client_id')||'';
+  if(!clientId){document.getElementById('setup-section').style.display='';document.getElementById('login-status').textContent='Enter your Azure App Client ID below.';return;}
+  setLoginStatus('Opening Microsoft sign-in...');
+  const nonce=Math.random().toString(36).slice(2),state=Math.random().toString(36).slice(2);
+  sessionStorage.setItem('oauth_state',state);
+  const params=new URLSearchParams({client_id:clientId,response_type:'token id_token',redirect_uri:REDIRECT_URI,scope:'https://graph.microsoft.com/Group.Read.All https://graph.microsoft.com/Mail.Read openid profile',state,nonce,response_mode:'fragment',prompt:'select_account'});
+  const authUrl='https://login.microsoftonline.com/'+TENANT_ID+'/oauth2/v2.0/authorize?'+params;
+  const popup=window.open(authUrl,'ms-login','width=520,height=680,left=300,top=80');
+  if(!popup){setLoginStatus('Popup blocked. Allow popups and try again.');return;}
+  setLoginStatus('Sign in to Microsoft in the popup window...');
+  const pollTimer=setInterval(()=>{
+    try{
+      const pu=popup.location.href;
+      if(pu&&(pu.includes('access_token=')||pu.includes('error='))){
+        clearInterval(pollTimer);popup.close();
+        const hash=pu.includes('#')?pu.split('#')[1]:(pu.split('?')[1]||'');
+        handleImplicitToken(hash);
+      }
+    }catch(e){}
+    if(popup.closed){clearInterval(pollTimer);setLoginStatus('Popup closed. Try again.');}
+  },300);
+}
+
+function handleImplicitToken(hash){
+  const p=new URLSearchParams(hash);
+  if(p.get('error')){setLoginStatus('Error: '+p.get('error_description'));return;}
+  const accessToken=p.get('access_token'),idToken=p.get('id_token'),expiresIn=parseInt(p.get('expires_in')||'3600');
+  if(!accessToken){setLoginStatus('No token received. Try again.');return;}
+  let name='',upn='';
+  try{const pl=JSON.parse(atob(idToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));name=pl.name||'';upn=pl.preferred_username||pl.upn||'';}catch{}
+  auth={accessToken,refreshToken:'',expiresAt:Date.now()+expiresIn*1000,name,upn};
+  saveAuth();scheduleRefresh();showApp();
+}
+
+async function refreshAccessToken(){
+  const clientId=CLIENT_ID_SERVER||localStorage.getItem('pms_client_id');
+  if(!clientId||!auth.accessToken)return false;
+  return new Promise(resolve=>{
+    const nonce=Math.random().toString(36).slice(2);
+    const params=new URLSearchParams({client_id:clientId,response_type:'token',redirect_uri:REDIRECT_URI,scope:'https://graph.microsoft.com/Group.Read.All https://graph.microsoft.com/Mail.Read',nonce,response_mode:'fragment',prompt:'none'});
+    const iframe=document.createElement('iframe');
+    iframe.style.cssText='display:none;width:0;height:0;border:0;position:absolute';
+    iframe.src='https://login.microsoftonline.com/'+TENANT_ID+'/oauth2/v2.0/authorize?'+params;
+    let settled=false;
+    const finish=(ok)=>{if(!settled){settled=true;try{document.body.removeChild(iframe);}catch{}resolve(ok);}};
+    iframe.onload=()=>{
+      try{const url=iframe.contentWindow.location.href;if(url&&url.includes('access_token=')){const hash=url.split('#')[1]||'';const p2=new URLSearchParams(hash);const tok=p2.get('access_token');const exp=parseInt(p2.get('expires_in')||'3600');if(tok){auth.accessToken=tok;auth.expiresAt=Date.now()+exp*1000;saveAuth();finish(true);return;}}}catch(e){}
+      finish(false);
+    };
+    setTimeout(()=>finish(false),8000);
+    document.body.appendChild(iframe);
+  });
+}
+
+function scheduleRefresh(){
+  if(refreshTimer)clearTimeout(refreshTimer);
+  if(!auth.accessToken)return;
+  const ms=Math.max(auth.expiresAt-Date.now()-300000,60000);
+  refreshTimer=setTimeout(async()=>{
+    const ok=await refreshAccessToken();
+    if(ok){scheduleRefresh();}
+    else{const b=document.getElementById('user-badge');if(b){b.textContent='Session expiring - refresh page';b.style.color='#dc2626';}}
+  },ms);
+}
+
+function saveClientIdAndLogin(){
+  const id=(document.getElementById('client-id-input')||{}).value?.trim();
+  if(!id){toast('Enter a valid Client ID','error');return;}
+  localStorage.setItem('pms_client_id',id);loginWithMicrosoft();
+}
+
+function signOut(){
+  auth={accessToken:'',refreshToken:'',expiresAt:0,name:'',upn:''};saveAuth();
+  if(refreshTimer)clearTimeout(refreshTimer);if(autoSyncTimer)clearTimeout(autoSyncTimer);
+  document.getElementById('app').style.display='none';
+  document.getElementById('login-screen').style.display='flex';
+  setLoginStatus('Signed out.');
+}
+
+async function gf(path){
+  if(Date.now()>auth.expiresAt-30000){const ok=await refreshAccessToken();if(!ok)throw new Error('Session expired - please sign in again');}
+  const r=await fetch('https://graph.microsoft.com/v1.0'+path,{headers:{'Authorization':'Bearer '+auth.accessToken,'ConsistencyLevel':'eventual'}});
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.error?.message||r.status);}
+  return r.json();
+}
+async function gfAll(path,maxP=15){
+  let res=[],url='https://graph.microsoft.com/v1.0'+path,p=0;
+  while(url&&p<maxP){
+    const r=await fetch(url,{headers:{'Authorization':'Bearer '+auth.accessToken,'ConsistencyLevel':'eventual'}});
+    if(!r.ok)break;const d=await r.json();res=res.concat(d.value||[]);url=d['@odata.nextLink']||null;p++;
+  }
+  return res;
+}
+
+async function fetchGroupEmails(groupId,afterDate){
+  const emails=[];
+  const convs=await gfAll(`/groups/${groupId}/conversations?$top=50&$select=id,topic,lastDeliveredDateTime,hasAttachments,preview`,20);
+  const cutoff=new Date(afterDate);
+  setSyncBar('fetching',`Found ${convs.length} conversations - reading threads...`);
+  for(const conv of convs){
+    if(new Date(conv.lastDeliveredDateTime)<cutoff)continue;
+    try{
+      const threads=await gfAll(`/groups/${groupId}/conversations/${conv.id}/threads?$select=id,topic`,2);
+      const thread=threads[0];if(!thread)continue;
+      const posts=await gfAll(`/groups/${groupId}/threads/${thread.id}/posts?$select=id,from,receivedDateTime,body,hasAttachments,sender&$top=20`,3);
+      const fp=posts[0];if(!fp)continue;const lp=posts[posts.length-1];
+      const allTo=[],allCc=[];
+      posts.forEach(p=>{(p.toRecipients||[]).forEach(r=>allTo.push(r));(p.ccRecipients||[]).forEach(r=>allCc.push(r));(p.newParticipants||[]).forEach(r=>allTo.push(r));});
+      emails.push({id:conv.id,subject:conv.topic||'No Subject',from:{emailAddress:{address:fp.from?.emailAddress?.address||fp.sender?.emailAddress?.address||'unknown',name:fp.from?.emailAddress?.name||''}},receivedDateTime:fp.receivedDateTime||conv.lastDeliveredDateTime,lastReplyDate:lp.receivedDateTime||conv.lastDeliveredDateTime,bodyPreview:conv.preview||(fp.body?.content||'').replace(/<[^>]+>/g,'').replace(/\s+/g,' ').slice(0,300),latestBody:(lp.body?.content||'').replace(/<[^>]+>/g,'').replace(/\s+/g,' ').slice(0,400),replyCount:Math.max(0,posts.length-1),hasAttachments:conv.hasAttachments||false,toRecipients:allTo,ccRecipients:allCc,webLink:'https://outlook.office.com/mail/group/aships.co.uk/pmslink.support'});
+    }catch(e){console.warn('Thread error:',conv.topic,e.message);}
+  }
+  return emails;
+}
+
+function detectEngineer(email){
+  const recipients=[...(email.toRecipients||[]),...(email.ccRecipients||[])].map(r=>(r.emailAddress?.address||'').toLowerCase());
+  for(const eng of ENGINEERS){if(recipients.includes(eng.email.toLowerCase()))return eng.email;}
+  const hints=[{eng:ENGINEERS[0],h:['boppudi','vineeth','v.boppudi']},{eng:ENGINEERS[1],h:['desingh','arvindh','a.desingh']},{eng:ENGINEERS[2],h:['borse','c.borse']}];
+  const hay=(email.subject+' '+email.bodyPreview+' '+email.latestBody).toLowerCase();
+  for(const {eng,h} of hints)if(h.some(x=>hay.includes(x)))return eng.email;
+  return ENGINEERS[0].email;
+}
+
+function detectStatus(replyCount,latestBody){
+  const b=(latestBody||'').toLowerCase();
+  if(/resolv|complet|done|closed|fixed|no further|sorted|rectif/.test(b))return 'Resolved';
+  if(/working on|in progress|investigating|will update|looking into|checking/.test(b))return 'In Progress';
+  if(replyCount===0)return 'Open';
+  if(replyCount>=1&&replyCount<=2)return 'In Progress';
+  if(replyCount>5)return 'Resolved';
+  return 'In Progress';
+}
+
+async function triggerSync(isAuto){
+  if(!auth.accessToken){if(!isAuto)toast('Please sign in first','error');return;}
+  const btn=document.getElementById('sync-btn');btn.disabled=true;
+  setSyncBar('fetching',isAuto?'Auto-syncing...':'Syncing 1 year of PMS emails...');
+  try{
+    const after=new Date(Date.now()-365*86400000).toISOString();
+    let emails=[],src='';
+    try{
+      setSyncBar('fetching','Finding PMS Support group...');
+      let group=null;
+      try{const gs=await gf(`/groups?$filter=mail eq 'pmslink.support@aships.co.uk'&$select=id,displayName,mail`);group=(gs.value||[])[0];}catch{}
+      if(!group){const mg=await gf('/me/memberOf?$select=id,displayName,mail');group=(mg.value||[]).find(g=>g.mail?.toLowerCase().includes('pmslink'));}
+      if(group){src=group.displayName;emails=await fetchGroupEmails(group.id,after);}
+    }catch(e){console.warn('Group fetch failed:',e.message);}
+    if(!emails.length){
+      try{
+        setSyncBar('fetching','Searching personal inbox...');src='Personal inbox';
+        const d=await gfAll('/me/messages?$search="pmslink"&$top=50&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,webLink',5);
+        emails=d.filter(e=>new Date(e.receivedDateTime)>=new Date(after)).map(e=>({...e,replyCount:0,latestBody:e.bodyPreview||'',lastReplyDate:e.receivedDateTime}));
+      }catch(e){console.warn('Inbox search failed:',e.message);}
+    }
+    if(!emails.length){setSyncBar('done','No emails found');btn.disabled=false;scheduleAutoSync();return;}
+    setSyncBar('classifying',`Processing ${emails.length} emails from ${src}...`);
+    const byRef={};tickets.forEach(t=>{if(t.outlookRef)byRef[t.outlookRef]=t;});
+    let imported=0,updated=0;
+    const newEmails=emails.filter(e=>!byRef[e.id]);
+    let cls=newEmails.map(()=>({priority:'Medium',category:'Other',title:''}));
+    if(newEmails.length&&(cfg.apiKey||ANTHROPIC_KEY_SERVER)){
+      try{
+        const prompt=newEmails.map((e,i)=>`[${i}] Subject:${e.subject}|Body:${e.bodyPreview.slice(0,100)}`).join('|||');
+        const res=await claudeCall('Maritime PMS support classifier. Return JSON array (same order): [{"priority":"Low|Medium|High|Critical","category":"Bug Report|Vessel Support|Feature Request|Access Issue|Data Issue|Integration|Performance|Other","title":"max 60 chars"}]. ONLY the JSON array.',prompt);
+        const arr=extractArr(res);if(arr&&arr.length===newEmails.length)cls=arr;
+      }catch{}
+    }
+    let ni=0;
+    for(const email of emails){
+      const ex=byRef[email.id];const now=new Date().toISOString();const autoStatus=detectStatus(email.replyCount||0,email.latestBody||'');
+      if(ex){
+        let changed=false;
+        if(!ex.manualStatus&&ex.status!==autoStatus){ex.status=autoStatus;changed=true;}
+        if(email.replyCount!==undefined&&email.replyCount!==ex.replyCount){ex.replyCount=email.replyCount;if(email.latestBody&&email.latestBody!==ex.latestBody){ex.latestBody=email.latestBody;if(!ex.comments)ex.comments=[];ex.comments.push({author:'Outlook Sync',text:'New reply: '+email.latestBody.slice(0,200),time:now});}changed=true;}
+        if(changed){ex.updated=now;updated++;}
+      }else{
+        const c=cls[ni++]||{};
+        tickets.push({id:'TKT-'+Date.now()+'-'+Math.random().toString(36).slice(2,5),title:c.title||email.subject||'No Subject',description:email.bodyPreview||'',category:c.category||'Other',priority:c.priority||'Medium',status:autoStatus,reporter:email.from?.emailAddress?.address||'unknown',assignee:detectEngineer(email),created:email.receivedDateTime||now,updated:now,lastReplyDate:email.lastReplyDate||now,latestBody:email.latestBody||'',replyCount:email.replyCount||0,comments:[],outlookRef:email.id,webLink:email.webLink||'',hasAttachments:email.hasAttachments||false,source:'outlook',manualStatus:false});
+        imported++;
+      }
+    }
+    saveTickets();renderAll();
+    const ls=new Date().toLocaleString();localStorage.setItem(SYNC_KEY,ls);
+    document.getElementById('last-sync-label').textContent='Synced: '+ls;
+    setSyncBar('done',`${imported} new . ${updated} updated . ${emails.length} total`);
+    if(!isAuto)toast(`${imported} new tickets, ${updated} updated`,'success');
+    scheduleAutoSync();
+  }catch(err){
+    setSyncBar('error','Sync failed: '+err.message);
+    if(!isAuto)toast('Sync failed: '+err.message,'error');
+    scheduleAutoSync();
+  }
+  btn.disabled=false;
+}
+
+function scheduleAutoSync(){if(autoSyncTimer)clearTimeout(autoSyncTimer);autoSyncTimer=setTimeout(()=>triggerSync(true),24*3600000);}
+function checkAutoSync(){
+  const last=localStorage.getItem(SYNC_KEY);const hrs=last?(Date.now()-new Date(last).getTime())/3600000:999;
+  document.getElementById('last-sync-label').textContent=last?'Synced: '+new Date(last).toLocaleString():'Never synced';
+  if(hrs>=24)setTimeout(()=>triggerSync(true),1500);else autoSyncTimer=setTimeout(()=>triggerSync(true),(24-hrs)*3600000);
+}
+
+function showApp(){
+  loadCfg();loadTickets();loadTokenUsage();
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('app').style.display='';
+  document.getElementById('user-badge').textContent='User: '+(auth.name||auth.upn||'User');
+  document.getElementById('cfg-apikey').value=cfg.apiKey||'';
+  updateTokenUsageDisplay();setQuickRange(30);renderAll();scheduleRefresh();checkAutoSync();
+}
+
+function showTokenDetails(){alert(`Claude API Usage\n\nCalls: ${tokenUsage.calls}\nInput: ${tokenUsage.input.toLocaleString()} tokens\nOutput: ${tokenUsage.output.toLocaleString()} tokens\nEst. cost: ${tokenCost()}`);}
+
+window.onload=async()=>{
+  loadAuth();loadCfg();
+  if(auth.accessToken&&Date.now()<auth.expiresAt-30000){showApp();return;}
+  if(auth.accessToken&&localStorage.getItem('pms_client_id')){
+    setLoginStatus('Restoring session...');
+    document.getElementById('login-screen').style.display='flex';
+    const ok=await refreshAccessToken();if(ok){showApp();return;}
+  }
+  document.getElementById('login-screen').style.display='flex';setLoginStatus('');
+};
+
+function openSettings(){
+  document.getElementById('cfg-apikey').value=cfg.apiKey||'';
+  const note=document.getElementById('apikey-note');
+  if(ANTHROPIC_KEY_SERVER&&note){note.innerHTML='<span style="color:#15803d;font-weight:600">API key configured via server environment variable.</span>';document.getElementById('cfg-apikey').placeholder='Provided by server';document.getElementById('cfg-apikey').disabled=true;}
+  document.getElementById('settings-modal').style.display='flex';
+}
+function saveSettings(){cfg.apiKey=document.getElementById('cfg-apikey').value.trim();saveCfg();closeModal('settings-modal');toast('Settings saved','success');}
+function closeModal(id){document.getElementById(id).style.display='none';}
+function openNewTicket(){document.getElementById('new-ticket-modal').style.display='flex';}
+function switchTab(t,el){document.getElementById('tab-dashboard').style.display=t==='dashboard'?'':'none';document.getElementById('tab-tickets').style.display=t==='tickets'?'':'none';document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));el.classList.add('active');}
+function setSyncBar(cls,msg){const b=document.getElementById('sync-bar');b.className=cls;b.style.display='flex';b.querySelector('#sync-msg').textContent=msg;b.querySelector('.spin').style.display=cls==='fetching'||cls==='classifying'?'inline-block':'none';}
+function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function toast(msg,type='info'){const c=document.getElementById('toast');const d=document.createElement('div');d.className='toast-item '+type;d.textContent=msg;c.appendChild(d);setTimeout(()=>d.remove(),4000);}
+function setQuickRange(days){const to=new Date(),from=new Date(Date.now()-days*86400000);document.getElementById('filter-from').value=from.toISOString().slice(0,10);document.getElementById('filter-to').value=to.toISOString().slice(0,10);renderAll();}
+function clearRange(){document.getElementById('filter-from').value='';document.getElementById('filter-to').value='';renderAll();}
+
+function inRange(t){const f=document.getElementById('filter-from').value,to=document.getElementById('filter-to').value,d=(t.created||'').slice(0,10);if(f&&d<f)return false;if(to&&d>to)return false;return true;}
+function filteredTickets(){
+  const s=(document.getElementById('search')||{}).value?.toLowerCase()||'';
+  const fs=(document.getElementById('f-status')||{}).value||'';const fp=(document.getElementById('f-priority')||{}).value||'';
+  const fe=(document.getElementById('f-engineer')||{}).value||'';const fc=(document.getElementById('f-category')||{}).value||'';
+  return tickets.filter(t=>{
+    if(!inRange(t))return false;if(activeCatFilter&&t.category!==activeCatFilter)return false;
+    if(fs&&t.status!==fs)return false;if(fp&&t.priority!==fp)return false;if(fe&&t.assignee!==fe)return false;if(fc&&t.category!==fc)return false;
+    if(s&&!t.title?.toLowerCase().includes(s)&&!t.id?.toLowerCase().includes(s)&&!t.reporter?.toLowerCase().includes(s))return false;
+    return true;
+  });
+}
+function renderAll(){const ft=filteredTickets();renderStats(ft);renderWorkload(ft);renderCatTiles(ft);renderCharts(ft);renderEngBreakdown(ft);renderTicketList();}
+
+function renderStats(ft){
+  document.getElementById('s-open').textContent=ft.filter(t=>t.status==='Open').length;
+  document.getElementById('s-inprog').textContent=ft.filter(t=>t.status==='In Progress').length;
+  document.getElementById('s-resolved').textContent=ft.filter(t=>['Resolved','Closed'].includes(t.status)).length;
+  document.getElementById('s-critical').textContent=ft.filter(t=>t.priority==='Critical').length;
+}
+function renderWorkload(ft){
+  document.getElementById('workload-grid').innerHTML=ENGINEERS.map(eng=>{
+    const open=ft.filter(t=>t.assignee===eng.email&&!['Resolved','Closed'].includes(t.status)).length;
+    const total=ft.filter(t=>t.assignee===eng.email).length;const pct=total>0?Math.round(open/total*100):0;
+    return`<div class="card" style="padding:12px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="${eng.cls}">${eng.initials}</span><span style="font-size:13px;font-weight:600">${eng.name}</span></div><div style="font-size:24px;font-weight:800">${open} <span style="font-size:12px;font-weight:400;color:#94a3b8">open</span></div><div style="font-size:11px;color:#94a3b8">${total} total</div><div class="workload-bar"><div class="workload-fill" style="width:${pct}%"></div></div></div>`;
+  }).join('');
+}
+function renderCatTiles(ft){
+  document.getElementById('cat-tiles').innerHTML=Object.keys(CAT_META).map(cat=>{
+    const count=ft.filter(t=>t.category===cat).length;const m=CAT_META[cat];const active=activeCatFilter===cat;
+    return`<div class="cat-tile${active?' active':''}" style="background:${m.bg};color:${m.col}" onclick="activeCatFilter=activeCatFilter==='${cat}'?null:'${cat}';renderAll()"><div style="font-size:20px">${m.icon}</div><div style="font-size:22px;font-weight:800">${count}</div><div style="font-size:11px;font-weight:700">${cat}</div></div>`;
+  }).join('');
+  document.getElementById('active-cat-clear').style.display=activeCatFilter?'':'none';
+}
+function renderCharts(ft){
+  const sc=['Open','In Progress','Pending','Resolved','Closed'].map(s=>ft.filter(t=>t.status===s).length);
+  if(chartStatus)chartStatus.destroy();
+  chartStatus=new Chart(document.getElementById('chart-status'),{type:'doughnut',data:{labels:['Open','In Progress','Pending','Resolved','Closed'],datasets:[{data:sc,backgroundColor:['#3b82f6','#f59e0b','#8b5cf6','#22c55e','#94a3b8'],borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{font:{size:11}}}}}});
+  const mMap={};ft.forEach(t=>{if(!t.created)return;const m=t.created.slice(0,7);mMap[m]=(mMap[m]||0)+1;});
+  const months=Object.keys(mMap).sort();
+  if(chartTime)chartTime.destroy();
+  chartTime=new Chart(document.getElementById('chart-time'),{type:'bar',data:{labels:months,datasets:[{label:'Tickets',data:months.map(m=>mMap[m]),backgroundColor:'#3b82f6',borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
+}
+function renderEngBreakdown(ft){
+  document.getElementById('eng-breakdown').innerHTML=ENGINEERS.map(eng=>{
+    const et=ft.filter(t=>t.assignee===eng.email);
+    const cats=Object.keys(CAT_META).filter(c=>et.some(t=>t.category===c)).map(c=>`<span style="font-size:11px;background:${CAT_META[c].bg};color:${CAT_META[c].col};padding:2px 8px;border-radius:99px;font-weight:600">${CAT_META[c].icon} ${c}: ${et.filter(t=>t.category===c).length}</span>`).join('');
+    return`<div class="card" style="padding:12px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="${eng.cls}">${eng.initials}</span><span style="font-size:13px;font-weight:700">${eng.name}</span></div><div style="display:flex;flex-wrap:wrap;gap:4px">${cats||'<span style="color:#94a3b8;font-size:11px">No tickets</span>'}</div></div>`;
+  }).join('');
+}
+function renderTicketList(){
+  const list=document.getElementById('ticket-list');
+  const ft=filteredTickets().sort((a,b)=>new Date(b.created)-new Date(a.created));
+  document.getElementById('ticket-count').textContent=ft.length+' ticket'+(ft.length!==1?'s':'');
+  if(!ft.length){list.innerHTML='<div style="text-align:center;padding:48px;color:#94a3b8">No tickets match your filters.</div>';return;}
+  list.innerHTML=ft.map(t=>{
+    const eng=ENGINEERS.find(e=>e.email===t.assignee)||ENGINEERS[0];const m=CAT_META[t.category]||CAT_META['Other'];
+    return`<div class="ticket-row${t.priority==='Critical'?' critical-row':''}" onclick="openTicket('${t.id}')">
+      <div style="flex:1;min-width:0">
+        <div class="ticket-meta">
+          <span style="font-size:11px;font-family:monospace;color:#94a3b8">${t.id}</span>
+          <span style="background:${m.bg};color:${m.col};font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px">${m.icon} ${t.category}</span>
+          <span class="badge ${STATUS_BADGE[t.status]||'badge-gray'}">${t.status}</span>
+          <span class="badge ${PRI_BADGE[t.priority]||'badge-gray'}">${t.priority}</span>
+          ${t.source==='outlook'?'<span style="font-size:11px;color:#3b82f6">email</span>':''}
+          ${t.replyCount>0?`<span style="font-size:10px;color:#94a3b8">${t.replyCount} replies</span>`:''}
+        </div>
+        <div class="ticket-title">${escHtml(t.title)}</div>
+        <div class="ticket-sub">From: ${escHtml(t.reporter||'')} &bull; <span class="${eng.cls}" style="vertical-align:middle">${eng.initials}</span> ${eng.name} &bull; ${t.created?new Date(t.created).toLocaleDateString():''}</div>
+      </div>
+      <span style="color:#cbd5e1;font-size:18px;flex-shrink:0">&rsaquo;</span>
+    </div>`;
+  }).join('');
+}
+
+function openTicket(id){
+  const t=tickets.find(x=>x.id===id);if(!t)return;activeTicketId=id;
+  const m=CAT_META[t.category]||CAT_META['Other'];
+  document.getElementById('tm-meta').innerHTML=`<span style="font-size:11px;font-family:monospace;color:#94a3b8">${t.id}</span><span style="background:${m.bg};color:${m.col};font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px">${m.icon} ${t.category}</span>${t.source==='outlook'?'<span class="badge badge-blue">From Outlook</span>':''}`;
+  document.getElementById('tm-title').textContent=t.title;
+  document.getElementById('tm-reporter').textContent=t.reporter||'';
+  document.getElementById('tm-assignee').value=t.assignee||ENGINEERS[0].email;
+  document.getElementById('tm-priority').value=t.priority||'Medium';
+  document.getElementById('tm-category').value=t.category||'Other';
+  document.getElementById('tm-created').textContent=t.created?new Date(t.created).toLocaleString():'';
+  document.getElementById('tm-replies').textContent=(t.replyCount||0)+' replies';
+  document.getElementById('tm-desc').textContent=t.description||'No description.';
+  const ol=document.getElementById('tm-outlook-link');if(t.webLink){ol.href=t.webLink;ol.style.display='';}else ol.style.display='none';
+  document.getElementById('tm-statuses').innerHTML=['Open','In Progress','Pending','Resolved','Closed'].map(s=>`<span class="status-pill${t.status===s?' active':''}" onclick="setStatus('${s}')">${s}</span>`).join('');
+  renderComments(t);
+  document.getElementById('ai-section').style.display='none';document.getElementById('ai-result').style.display='none';
+  document.getElementById('ticket-modal').style.display='flex';
+}
+function renderComments(t){
+  document.getElementById('tm-comment-count').textContent=t.comments?.length||0;
+  document.getElementById('tm-comments').innerHTML=(t.comments||[]).map(c=>`<div class="comment"><span class="comment-author">${escHtml(c.author)}</span><span class="comment-time">${new Date(c.time).toLocaleString()}</span><div class="comment-text">${escHtml(c.text)}</div></div>`).join('');
+}
+function setStatus(s){updateTicketField('status',s);document.querySelectorAll('.status-pill').forEach(p=>{p.classList.toggle('active',p.textContent===s);});}
+function updateTicketField(field,val){
+  const t=tickets.find(x=>x.id===activeTicketId);if(!t)return;
+  t[field]=val;t.updated=new Date().toISOString();if(field==='status')t.manualStatus=true;
+  saveTickets();renderAll();
+}
+function postComment(){
+  const input=document.getElementById('new-comment'),text=input.value.trim();if(!text)return;
+  const t=tickets.find(x=>x.id===activeTicketId);if(!t)return;if(!t.comments)t.comments=[];
+  const eng=ENGINEERS.find(e=>e.email===t.assignee)||ENGINEERS[0];
+  t.comments.push({author:eng.name,text,time:new Date().toISOString()});t.updated=new Date().toISOString();
+  input.value='';saveTickets();renderComments(t);renderAll();
+}
+
+async function aiClassifyNew(){
+  const title=document.getElementById('nt-title').value,desc=document.getElementById('nt-desc').value;
+  if(!title&&!desc){toast('Enter title first','error');return;}
+  if(!cfg.apiKey&&!ANTHROPIC_KEY_SERVER){toast('Set Anthropic API key in Settings','error');return;}
+  const hint=document.getElementById('nt-ai-hint');hint.style.display='';hint.textContent='Classifying...';
+  try{
+    const res=await claudeCall('Return JSON only: {"priority":"Low|Medium|High|Critical","category":"Bug Report|Vessel Support|Feature Request|Access Issue|Data Issue|Integration|Performance|Other"}','Subject:'+title+'\n'+desc);
+    const p=extractObj(res);if(p){document.getElementById('nt-category').value=p.category||'Other';document.getElementById('nt-priority').value=p.priority||'Medium';hint.textContent='Done: '+p.category+' / '+p.priority;}
+  }catch(e){hint.textContent='Error: '+e.message;}
+}
+function createTicket(){
+  const title=document.getElementById('nt-title').value.trim(),reporter=document.getElementById('nt-reporter').value.trim();
+  if(!title||!reporter){toast('Title and reporter required','error');return;}
+  const now=new Date().toISOString();
+  tickets.unshift({id:'TKT-'+Date.now(),title,description:document.getElementById('nt-desc').value,category:document.getElementById('nt-category').value,priority:document.getElementById('nt-priority').value,status:'Open',reporter,assignee:document.getElementById('nt-assignee').value,created:now,updated:now,comments:[],source:'manual',manualStatus:false});
+  saveTickets();renderAll();closeModal('new-ticket-modal');toast('Ticket created','success');
+}
+
+function openAiPanel(){const s=document.getElementById('ai-section');s.style.display=s.style.display==='none'?'':'none';}
+async function runAI(action){
+  if(!cfg.apiKey&&!ANTHROPIC_KEY_SERVER){toast('Set Anthropic API key in Settings','error');return;}
+  const t=tickets.find(x=>x.id===activeTicketId);if(!t)return;
+  const result=document.getElementById('ai-result');result.style.display='';result.textContent='Working...';
+  try{
+    let text='';
+    if(action==='suggest')text=await claudeCall('Maritime PMS support expert. Give 3-5 actionable resolution steps.','Ticket:'+t.title+'\nCategory:'+t.category+'\nDesc:'+t.description);
+    else if(action==='email')text=await claudeCall('Draft professional support update email under 100 words.','Ticket '+t.id+': "'+t.title+'". Status:'+t.status+'. Reporter:'+t.reporter);
+    else if(action==='related')text=await claudeCall('Summarise likely related PMS issues and suggest search terms.','Ticket:'+t.title+'\nCategory:'+t.category+'\nDesc:'+t.description);
+    result.textContent=text;
+  }catch(e){result.textContent='Error: '+e.message;}
+}
+
+const tokenUsage={input:0,output:0,calls:0};
+function loadTokenUsage(){const saved=load('pms_token_usage',{input:0,output:0,calls:0});tokenUsage.input=saved.input||0;tokenUsage.output=saved.output||0;tokenUsage.calls=saved.calls||0;}
+function saveTokenUsage(){save('pms_token_usage',{...tokenUsage,date:new Date().toISOString()});}
+function tokenCost(){return '$'+(((tokenUsage.input/1000000)*3)+((tokenUsage.output/1000000)*15)).toFixed(4);}
+
+async function claudeCall(system,user){
+  const isHosted=window.location.protocol==='https:'||(window.location.hostname!==''&&window.location.hostname!=='localhost'&&!window.location.protocol.startsWith('file'));
+  const apiKey=cfg.apiKey||ANTHROPIC_KEY_SERVER;
+  if(!apiKey&&!isHosted)throw new Error('No Anthropic API key - add it in Settings');
+  const endpoint=isHosted?'/api/claude':'https://api.anthropic.com/v1/messages';
+  const headers={'Content-Type':'application/json'};
+  if(!isHosted){headers['x-api-key']=apiKey;headers['anthropic-version']='2023-06-01';headers['anthropic-dangerous-direct-browser-access']='true';}
+  const r=await fetch(endpoint,{method:'POST',headers,body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,system,messages:[{role:'user',content:user}]})});
+  const d=await r.json();if(d.error)throw new Error(d.error.message);
+  if(d.usage){tokenUsage.input+=d.usage.input_tokens||0;tokenUsage.output+=d.usage.output_tokens||0;tokenUsage.calls++;saveTokenUsage();updateTokenUsageDisplay();}
+  return(d.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');
+}
+function updateTokenUsageDisplay(){const el=document.getElementById('token-usage-badge');if(el)el.textContent=`API: ${tokenUsage.calls} calls ~${tokenCost()}`;}
+
+function extractArr(t){const c=t.replace(/```json|```/gi,'');const s=c.indexOf('[');if(s<0)return null;let d=0,e=-1;for(let i=s;i<c.length;i++){if(c[i]==='[')d++;else if(c[i]===']'){d--;if(!d){e=i;break;}}}if(e<0)return null;try{return JSON.parse(c.slice(s,e+1));}catch{return null;}}
+function extractObj(t){const c=t.replace(/```json|```/gi,'');const s=c.indexOf('{');if(s<0)return null;let d=0,e=-1;for(let i=s;i<c.length;i++){if(c[i]==='{')d++;else if(c[i]==='}'){d--;if(!d){e=i;break;}}}if(e<0)return null;try{return JSON.parse(c.slice(s,e+1));}catch{return null;}}
+
+function exportCSV(){
+  const ft=filteredTickets();
+  const rows=[['ID','Title','Category','Priority','Status','Assignee','Reporter','Created','Replies','Source']];
+  ft.forEach(t=>{const eng=ENGINEERS.find(e=>e.email===t.assignee);rows.push([t.id,t.title,t.category,t.priority,t.status,eng?.name||t.assignee,t.reporter,t.created?.slice(0,10),t.replyCount||0,t.source]);});
+  const csv=rows.map(r=>r.map(v=>'"'+(v||'').toString().replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);a.download='pms_tickets_'+new Date().toISOString().slice(0,10)+'.csv';a.click();
+}
+</script>
+</body>
+</html>
