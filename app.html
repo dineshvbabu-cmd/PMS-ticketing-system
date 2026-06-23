@@ -645,19 +645,45 @@ async function _processConv(groupId,conv){
 
 async function fetchGroupEmails(groupId,afterDate){
   const emails=[];
-  const convs=await gfAll(`/groups/${groupId}/conversations?$top=50&$select=id,topic,lastDeliveredDateTime,hasAttachments,preview`,20);
-  const cutoff=new Date(afterDate);
-  const toProcess=convs
-    .filter(c=>new Date(c.lastDeliveredDateTime)>=cutoff)
-    .sort((a,b)=>new Date(b.lastDeliveredDateTime)-new Date(a.lastDeliveredDateTime));
+  // Use server-side date filter so pagination never skips recent emails
+  const isoAfter=new Date(afterDate).toISOString();
+  const convs=await gfAll(
+    `/groups/${groupId}/conversations?$filter=lastDeliveredDateTime ge '${isoAfter}'&$top=50&$select=id,topic,lastDeliveredDateTime,hasAttachments,preview`,
+    20
+  );
+  const toProcess=[...convs].sort((a,b)=>new Date(b.lastDeliveredDateTime)-new Date(a.lastDeliveredDateTime));
   setSyncBar('fetching',`Found ${toProcess.length} conversations - processing in batches...`);
   const BATCH=5;
+  let skipped=0;
   for(let i=0;i<toProcess.length;i+=BATCH){
     const batch=toProcess.slice(i,i+BATCH);
     setSyncBar('fetching',`Processing ${Math.min(i+BATCH,toProcess.length)} / ${toProcess.length} conversations...`);
     const results=await Promise.allSettled(batch.map(c=>_processConv(groupId,c)));
-    results.forEach(r=>{if(r.status==='fulfilled'&&r.value)emails.push(r.value);});
+    results.forEach((r,idx)=>{
+      if(r.status==='fulfilled'&&r.value){
+        emails.push(r.value);
+      }else{
+        // _processConv failed or returned null — create a minimal stub so the ticket isn't lost
+        const conv=batch[idx];
+        if(conv){
+          skipped++;
+          console.warn('Stub created for failed conversation:',conv.topic);
+          emails.push({
+            id:conv.id,subject:conv.topic||'No Subject',
+            from:{emailAddress:{address:'unknown',name:''}},
+            receivedDateTime:conv.lastDeliveredDateTime,
+            lastReplyDate:conv.lastDeliveredDateTime,
+            bodyPreview:conv.preview||'',latestBody:conv.preview||'',
+            replyCount:0,hasAttachments:conv.hasAttachments||false,
+            toRecipients:[],ccRecipients:[],
+            webLink:'https://outlook.office.com/mail/group/aships.co.uk/pmslink.support',
+            thread:[]
+          });
+        }
+      }
+    });
   }
+  if(skipped)console.warn(`${skipped} conversations used stub fallback (thread fetch failed)`);
   return emails;
 }
 
@@ -855,8 +881,10 @@ async function triggerSync(isAuto){
       }
     }
     saveTickets();renderAll();
-    const ls=new Date().toLocaleString();localStorage.setItem(SYNC_KEY,ls);
-    document.getElementById('last-sync-label').textContent='Synced: '+ls;
+    const _now=new Date();
+    localStorage.setItem(SYNC_KEY,_now.toISOString()); // ISO for reliable parsing
+    const _nextT=new Date(_now.getTime()+60*60*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    document.getElementById('last-sync-label').textContent='Synced: '+_now.toLocaleString()+' · Next: '+_nextT;
     setSyncBar('done',`${imported} new · ${updated} updated`);
     if(!isAuto)toast(`${imported} new tickets, ${updated} updated`,'success');
     scheduleAutoSync();
@@ -870,9 +898,13 @@ async function triggerSync(isAuto){
 
 function scheduleAutoSync(){if(autoSyncTimer)clearTimeout(autoSyncTimer);autoSyncTimer=setTimeout(()=>triggerSync(true),60*60*1000);}
 function checkAutoSync(){
-  const last=localStorage.getItem(SYNC_KEY);const hrs=last?(Date.now()-new Date(last).getTime())/3600000:999;
-  const nextSync=last?new Date(new Date(last).getTime()+60*60*1000):null;
-  document.getElementById('last-sync-label').textContent=last?'Synced: '+new Date(last).toLocaleString()+(nextSync?' · Next: '+nextSync.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''):'Never synced';
+  const last=localStorage.getItem(SYNC_KEY);
+  const lastDate=last?new Date(last):null;
+  const hrs=lastDate&&!isNaN(lastDate)?(Date.now()-lastDate.getTime())/3600000:999;
+  const nextSync=lastDate&&!isNaN(lastDate)?new Date(lastDate.getTime()+60*60*1000):null;
+  document.getElementById('last-sync-label').textContent=lastDate&&!isNaN(lastDate)?
+    'Synced: '+lastDate.toLocaleString()+(nextSync?' · Next: '+nextSync.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''):
+    'Never synced';
   if(hrs>=1)setTimeout(()=>triggerSync(true),2000);else autoSyncTimer=setTimeout(()=>triggerSync(true),(1-hrs)*3600000);
 }
 
