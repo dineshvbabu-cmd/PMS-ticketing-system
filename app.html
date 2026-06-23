@@ -81,6 +81,11 @@ textarea.form-control{resize:vertical;min-height:80px}
 .filters input:focus,.filters select:focus{border-color:#93c5fd}
 .filters input{flex:1;min-width:200px}
 .comment{background:#f8fafc;border-radius:12px;padding:10px 14px;margin-bottom:8px}
+.thread-post{border-radius:10px;padding:10px 12px;margin-bottom:8px;border:1px solid #e2e8f0;font-size:12px;line-height:1.5}
+.thread-post.eng{background:#f0fdf4;border-color:#bbf7d0}
+.thread-post.ext{background:#f8fafc}
+.thread-post .tp-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap}
+.thread-post .tp-body{white-space:pre-wrap;color:#475569;max-height:200px;overflow-y:auto}
 .comment-author{font-weight:700;font-size:12px;color:var(--blue)}
 .comment-time{font-size:11px;color:#94a3b8;margin-left:8px}
 .comment-text{font-size:13px;color:#334155;margin-top:4px}
@@ -337,6 +342,13 @@ textarea.form-control{resize:vertical;min-height:80px}
         <div><div class="section-title">Replies</div><div id="tm-replies" style="font-size:13px"></div></div>
       </div>
       <div style="margin-bottom:14px"><div class="section-title">Description</div><div id="tm-desc" style="background:#f8fafc;border-radius:10px;padding:12px;font-size:13px;white-space:pre-wrap;line-height:1.6"></div></div>
+      <div id="tm-thread-section" style="margin-bottom:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;cursor:pointer" onclick="toggleThreadView()">
+          <div class="section-title" style="margin:0">Email Thread <span id="tm-thread-count" style="font-size:11px;color:#94a3b8;font-weight:400"></span></div>
+          <span id="tm-thread-arrow" style="font-size:12px;color:#94a3b8;user-select:none">▸ Show thread</span>
+        </div>
+        <div id="tm-thread" style="display:none"></div>
+      </div>
       <div id="ai-section" style="display:none;margin-bottom:14px">
         <div class="section-title">AI Assist</div>
         <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
@@ -619,7 +631,15 @@ async function _processConv(groupId,conv){
     const replyCount=posts.length>1?posts.length-1:(hasRepliesInferred?1:0);
     // Gather all post bodies to give detectStatus more signal
     const allBodies=posts.map(p=>(p.body?.content||'').replace(/<[^>]+>/g,'').replace(/\s+/g,' ').slice(0,200)).join(' ');
-    return{id:conv.id,subject:conv.topic||'No Subject',from:{emailAddress:{address:fp.from?.emailAddress?.address||fp.sender?.emailAddress?.address||'unknown',name:fp.from?.emailAddress?.name||''}},receivedDateTime:fp.receivedDateTime||conv.lastDeliveredDateTime,lastReplyDate:lp.receivedDateTime||conv.lastDeliveredDateTime,bodyPreview:conv.preview||(fp.body?.content||'').replace(/<[^>]+>/g,'').replace(/\s+/g,' ').slice(0,300),latestBody:allBodies.slice(0,800),replyCount,hasAttachments:conv.hasAttachments||false,toRecipients:allTo,ccRecipients:allCc,webLink:'https://outlook.office.com/mail/group/aships.co.uk/pmslink.support'};
+    // Store thread posts for display in ticket modal (up to 10 posts, 600 chars each)
+    const threadPosts=posts.slice(0,10).map(p=>({
+      from:p.from?.emailAddress?.address||p.sender?.emailAddress?.address||'',
+      name:p.from?.emailAddress?.name||p.sender?.emailAddress?.name||'',
+      date:p.receivedDateTime||'',
+      body:(p.body?.content||'').replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/\s+/g,' ').trim().slice(0,600),
+      hasAttachments:p.hasAttachments||false
+    }));
+    return{id:conv.id,subject:conv.topic||'No Subject',from:{emailAddress:{address:fp.from?.emailAddress?.address||fp.sender?.emailAddress?.address||'unknown',name:fp.from?.emailAddress?.name||''}},receivedDateTime:fp.receivedDateTime||conv.lastDeliveredDateTime,lastReplyDate:lp.receivedDateTime||conv.lastDeliveredDateTime,bodyPreview:conv.preview||(fp.body?.content||'').replace(/<[^>]+>/g,'').replace(/\s+/g,' ').slice(0,300),latestBody:allBodies.slice(0,800),replyCount,hasAttachments:conv.hasAttachments||false,toRecipients:allTo,ccRecipients:allCc,webLink:'https://outlook.office.com/mail/group/aships.co.uk/pmslink.support',thread:threadPosts};
   }catch(e){console.warn('Thread error:',conv.topic,e.message);return null;}
 }
 
@@ -654,40 +674,48 @@ function detectEngineer(email){
 }
 
 // Status lifecycle:
-// Open       → vessel raised issue, no engineer reply yet
-// In Progress → engineer is actively working on it
-// Resolved   → engineer confirmed task done, or engineer sent the email (outgoing)
-// Closed     → vessel acknowledged the resolution
-function detectStatus(replyCount, latestBody, description, reporter, created){
+// Open       → vessel raised issue, no reply yet
+// In Progress → team replied but resolution not confirmed
+// Resolved   → team completed the task / engineer sent the email
+// Closed     → vessel acknowledged after resolution
+function detectStatus(replyCount, latestBody, description, reporter, created, category, subject){
   const last=(latestBody||'').toLowerCase();
   const desc=(description||'').toLowerCase();
+  const subj=(subject||'').toLowerCase();
+  const cat=(category||'').toLowerCase();
   const all=last+' '+desc;
 
-  // If the email was SENT BY an engineer it is an outgoing response — mark Resolved
-  if(ENGINEERS.some(e=>(reporter||'').toLowerCase()===e.email.toLowerCase())) return 'Resolved';
+  // Rule 1: Internal sender (@aships.co.uk or known engineer) → outgoing mail → Resolved
+  const rep=(reporter||'').toLowerCase();
+  if(ENGINEERS.some(e=>rep===e.email.toLowerCase())) return 'Resolved';
+  if(rep.endsWith('@aships.co.uk')) return 'Resolved';
 
-  // No replies yet → vessel is still waiting
+  // Rule 2: No replies yet → Open
   if(replyCount===0) return 'Open';
 
-  // Vessel/person acknowledged after resolution → Closed
-  if(replyCount>=2&&/\b(thank you|thanks|noted|confirmed|acknowledged|great|understood|ok noted|appreciate|received|duly noted)\b/.test(last)) return 'Closed';
+  // Rule 3: Vessel confirmed receipt of resolution → Closed
+  if(replyCount>=2&&/\b(thank you|thanks|noted|confirmed|acknowledged|great|understood|ok noted|appreciate|received|duly noted|many thanks)\b/.test(last)) return 'Closed';
 
-  // Engineer signature in the reply body → engineer replied → Resolved
-  // (checks last 500 chars — where signatures appear)
+  // Rule 4: Engineer name/title in reply tail (signature) → engineer replied → Resolved
   const tail=all.slice(-500);
-  const engNames=['boppudi','vineeth','desingh','arvindh','borse','chetan','d.babu','dinesh babu'];
+  const engNames=['boppudi','vineeth','desingh','arvindh','borse','chetan','d.babu','dinesh babu','pms engineer','senior pms'];
   if(replyCount>=1&&engNames.some(n=>tail.includes(n))) return 'Resolved';
 
-  // Resolution language anywhere in thread or description
-  const resRe=/resolv|complet|been fix|has been (done|sorted|updated|attend|address|clos)|sorted|rectif|no further action|please let us know if|if you have any further|issue.*address|task.*done|able to (raise|proceed|submit)|you may proceed|please proceed|can now proceed|vessel.*confirm|inform.*vessel|requisition.*rais|has been inform|action.*taken|action.*complet|been process|updated.*vessel|vessel.*updated|\bdone\b|\bok\b|\bnoted\b|\bunderstood\b|will do|checked|verified|confirmed|updated in|corrected|fixed in|applied|closed in|actioned|forwarded to vessel|vessel.*informed|informed.*vessel|included in pms|added.*pms|pms.*added|added to (the )?system|has been added|have been added|included in (the )?system|added to (the )?module|updated (the )?pms|pms.*updated|added under|included under|for your reference.*screenshot|screenshot.*for your reference|please find.*screenshot|screenshot.*attached|added.*ship store|ship store.*added/;
+  // Rule 5: Explicit resolution language in combined thread text → Resolved
+  const resRe=/resolv|complet|been fix|has been (done|sorted|updated|attend|address|clos)|sorted|rectif|no further action|please let us know if|if you have any (further|question)|issue.*address|task.*done|able to (raise|proceed|submit)|you may proceed|please proceed|can now proceed|vessel.*confirm|inform.*vessel|requisition.*rais|has been inform|action.*taken|action.*complet|been process|updated.*vessel|vessel.*updated|\bdone\b|\bnoted\b|\bunderstood\b|will do|checked|verified|confirmed|updated in|corrected|fixed in|applied|closed in|actioned|forwarded to vessel|vessel.*informed|informed.*vessel|included in pms|added.*pms|pms.*added|added to (the )?system|has been added|have been added|included in (the )?system|added to (the )?module|updated (the )?pms|pms.*updated|added under|included under|screenshot.*for your reference|please find.*screenshot|screenshot.*attached|added.*ship store|ship store.*added/;
   if(resRe.test(all)) return 'Resolved';
 
-  // Age heuristic: team resolves issues on day-to-day basis (per manager confirmation)
+  // Rule 6: Vessel Support action-request subject + any reply → Resolved
+  // (e.g. "Add spare in PMS", "BROMLEY// ADD IN PMS" — team acts immediately and replies)
+  const actionSubj=/add.*pms|pms.*add|updat.*pms|pms.*updat|add.*spar|spar.*add|add.*job|job.*add|add.*component|add.*item|add.*inventory|add.*certif|add in pms|to add in pms|\/\/ add|\/\/ updat|pms.*spare|addition of|addition in/;
+  if(cat==='vessel support'&&actionSubj.test(subj)&&replyCount>=1) return 'Resolved';
+
+  // Rule 7: Age-based — team responds and resolves tickets quickly
   if(created){
     const ageDays=(Date.now()-new Date(created).getTime())/86400000;
-    if(ageDays>14&&replyCount>=1) return 'Resolved'; // 2+ weeks with any reply → resolved
-    if(ageDays>7 &&replyCount>=2) return 'Resolved'; // 1 week with 2+ replies → resolved
-    if(ageDays>3 &&replyCount>=3) return 'Resolved'; // 3 days with 3+ replies → resolved
+    if(ageDays>7 &&replyCount>=1) return 'Resolved'; // 1+ week with any reply
+    if(ageDays>2 &&replyCount>=2) return 'Resolved'; // 2+ days with 2 replies
+    if(ageDays>0.5&&replyCount>=3) return 'Resolved'; // 12+ hours with 3 replies
   }
 
   return 'In Progress';
@@ -777,16 +805,20 @@ async function triggerSync(isAuto){
     if(reclassified>0)console.log(`Re-classified ${reclassified} tickets from Other`);
     let ni=0;
     for(const email of emails){
-      const ex=byRef[email.id];const now=new Date().toISOString();const autoStatus=detectStatus(email.replyCount||0,email.latestBody||'',email.bodyPreview||'',email.from?.emailAddress?.address||'',email.receivedDateTime||'');
+      const ex=byRef[email.id];const now=new Date().toISOString();
+      // Compute category first so detectStatus can use it for action-subject matching
+      const _emailCat=ex?.manualCategory?ex.category:(ex?.category||detectCategory(email.subject||'',email.bodyPreview||'',email.from?.emailAddress?.address||''));
+      const autoStatus=_emailCat==='Report'?'Resolved':detectStatus(email.replyCount||0,email.latestBody||'',email.bodyPreview||'',email.from?.emailAddress?.address||'',email.receivedDateTime||'',_emailCat,email.subject||'');
       if(ex){
         let changed=false;
         if(!ex.manualStatus&&ex.status!==autoStatus){ex.status=autoStatus;changed=true;}
         if(email.replyCount!==undefined&&email.replyCount!==ex.replyCount){ex.replyCount=email.replyCount;if(email.latestBody&&email.latestBody!==ex.latestBody){ex.latestBody=email.latestBody;if(!ex.comments)ex.comments=[];ex.comments.push({author:'Outlook Sync',text:'New reply: '+email.latestBody.slice(0,200),time:now});}changed=true;}
+        if(email.thread?.length&&(email.thread.length>(ex.thread?.length||0))){ex.thread=email.thread;changed=true;}
         if(changed){ex.updated=now;updated++;}
       }else{
         const c=cls[ni++]||{};
-        const _cat=c.category||'Other';const _finalStatus=_cat==='Report'?'Resolved':autoStatus;
-        tickets.push({id:'TKT-'+Date.now()+'-'+Math.random().toString(36).slice(2,5),title:c.title||email.subject||'No Subject',description:email.bodyPreview||'',category:_cat,priority:c.priority||'Medium',status:_finalStatus,reporter:email.from?.emailAddress?.address||'unknown',assignee:detectEngineer(email),created:email.receivedDateTime||now,updated:now,lastReplyDate:email.lastReplyDate||now,latestBody:email.latestBody||'',replyCount:email.replyCount||0,comments:[],outlookRef:email.id,webLink:email.webLink||'',hasAttachments:email.hasAttachments||false,source:'outlook',manualStatus:false});
+        const _cat=c.category||_emailCat;const _finalStatus=_cat==='Report'?'Resolved':(_cat===_emailCat?autoStatus:detectStatus(email.replyCount||0,email.latestBody||'',email.bodyPreview||'',email.from?.emailAddress?.address||'',email.receivedDateTime||'',_cat,email.subject||''));
+        tickets.push({id:'TKT-'+Date.now()+'-'+Math.random().toString(36).slice(2,5),title:c.title||email.subject||'No Subject',description:email.bodyPreview||'',category:_cat,priority:c.priority||'Medium',status:_finalStatus,reporter:email.from?.emailAddress?.address||'unknown',assignee:detectEngineer(email),created:email.receivedDateTime||now,updated:now,lastReplyDate:email.lastReplyDate||now,latestBody:email.latestBody||'',replyCount:email.replyCount||0,comments:[],outlookRef:email.id,webLink:email.webLink||'',hasAttachments:email.hasAttachments||false,source:'outlook',manualStatus:false,thread:email.thread||[]});
         imported++;
       }
     }
@@ -804,11 +836,12 @@ async function triggerSync(isAuto){
   btn.disabled=false;
 }
 
-function scheduleAutoSync(){if(autoSyncTimer)clearTimeout(autoSyncTimer);autoSyncTimer=setTimeout(()=>triggerSync(true),24*3600000);}
+function scheduleAutoSync(){if(autoSyncTimer)clearTimeout(autoSyncTimer);autoSyncTimer=setTimeout(()=>triggerSync(true),60*60*1000);}
 function checkAutoSync(){
   const last=localStorage.getItem(SYNC_KEY);const hrs=last?(Date.now()-new Date(last).getTime())/3600000:999;
-  document.getElementById('last-sync-label').textContent=last?'Synced: '+new Date(last).toLocaleString():'Never synced';
-  if(hrs>=24)setTimeout(()=>triggerSync(true),1500);else autoSyncTimer=setTimeout(()=>triggerSync(true),(24-hrs)*3600000);
+  const nextSync=last?new Date(new Date(last).getTime()+60*60*1000):null;
+  document.getElementById('last-sync-label').textContent=last?'Synced: '+new Date(last).toLocaleString()+(nextSync?' · Next: '+nextSync.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''):'Never synced';
+  if(hrs>=1)setTimeout(()=>triggerSync(true),2000);else autoSyncTimer=setTimeout(()=>triggerSync(true),(1-hrs)*3600000);
 }
 
 async function showApp(){
@@ -845,7 +878,7 @@ function reClassifyTickets(){
     }
     // Status — Report tickets are always Resolved (informational, no action needed)
     if(!t.manualStatus){
-      const ns=t.category==='Report'?'Resolved':detectStatus(t.replyCount||0,t.latestBody||'',t.description||'',t.reporter||'',t.created||'');
+      const ns=t.category==='Report'?'Resolved':detectStatus(t.replyCount||0,t.latestBody||'',t.description||'',t.reporter||'',t.created||'',t.category||'',t.title||'');
       if(t.status!==ns){t.status=ns;changed=true;}
     }
     // Engineer — vessel name match first, then name hints, then D. Babu
@@ -1061,8 +1094,60 @@ function openTicket(id){
   const ol=document.getElementById('tm-outlook-link');if(t.webLink){ol.href=t.webLink;ol.style.display='';}else ol.style.display='none';
   document.getElementById('tm-statuses').innerHTML=['Open','In Progress','Pending','Resolved','Closed'].map(s=>`<span class="status-pill${t.status===s?' active':''}" onclick="setStatus('${s}')">${s}</span>`).join('');
   renderComments(t);
+  renderThread(t);
   document.getElementById('ai-section').style.display='none';document.getElementById('ai-result').style.display='none';
   document.getElementById('ticket-modal').style.display='flex';
+}
+function toggleThreadView(){
+  const el=document.getElementById('tm-thread');
+  const arrow=document.getElementById('tm-thread-arrow');
+  const opening=el.style.display==='none';
+  el.style.display=opening?'':'none';
+  arrow.textContent=opening?'▾ Hide thread':'▸ Show thread';
+}
+function renderPost(p,i,total){
+  const isEng=ENGINEERS.some(e=>e.email.toLowerCase()===(p.from||'').toLowerCase());
+  const eng=isEng?ENGINEERS.find(e=>e.email.toLowerCase()===p.from.toLowerCase()):null;
+  const badge=(i===0)?`<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;padding:1px 6px;border-radius:99px">Original</span>`:
+    (i===total-1&&total>1)?`<span style="font-size:10px;background:#dcfce7;color:#166534;padding:1px 6px;border-radius:99px">Latest</span>`:'';
+  const senderLabel=p.inferred?`<span style="font-style:italic;color:#94a3b8">Latest reply (re-sync for full thread)</span>`:
+    (p.name&&p.name!==p.from?`<span style="font-weight:600">${escHtml(p.name)}</span> <span style="color:#94a3b8;font-size:11px">${escHtml(p.from)}</span>`:
+    `<span style="font-weight:600">${escHtml(p.from||'Unknown')}</span>`);
+  return `<div class="thread-post ${isEng?'eng':'ext'}">
+    <div class="tp-header">
+      <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+        ${isEng?`<span class="${eng.cls}" style="width:22px;height:22px;font-size:9px;flex-shrink:0">${eng.initials}</span>`
+          :`<span style="width:22px;height:22px;border-radius:50%;background:#e2e8f0;display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:#64748b;flex-shrink:0">${isEng?'E':'V'}</span>`}
+        ${senderLabel}${badge}
+        <span style="font-size:10px;color:${isEng?'#166534':'#64748b'};font-style:italic">${isEng?'(Team)':'(Vessel/User)'}</span>
+      </div>
+      <span style="font-size:11px;color:#94a3b8;white-space:nowrap;flex-shrink:0">${p.date?new Date(p.date).toLocaleString():''}</span>
+    </div>
+    <div class="tp-body">${escHtml((p.body||'No content.').trim())}</div>
+    ${p.hasAttachments?`<div style="font-size:11px;color:#64748b;margin-top:4px">📎 Has attachments</div>`:''}
+  </div>`;
+}
+function renderThread(t){
+  const section=document.getElementById('tm-thread-section');
+  const container=document.getElementById('tm-thread');
+  const countEl=document.getElementById('tm-thread-count');
+  const arrow=document.getElementById('tm-thread-arrow');
+  container.style.display='none';arrow.textContent='▸ Show thread';
+  let posts=t.thread||[];
+  if(!posts.length){
+    // Build pseudo-thread from stored data for older tickets
+    const pseudo=[];
+    if(t.description)pseudo.push({from:t.reporter||'',name:'',date:t.created||'',body:t.description,hasAttachments:t.hasAttachments||false});
+    if(t.latestBody&&t.replyCount>0)pseudo.push({from:'',name:'',date:t.lastReplyDate||t.updated||'',body:t.latestBody.slice(0,500),hasAttachments:false,inferred:true});
+    if(!pseudo.length){section.style.display='none';return;}
+    section.style.display='';
+    countEl.textContent=`(${pseudo.length} item${pseudo.length!==1?'s':''} · sync to load full thread)`;
+    container.innerHTML=pseudo.map((p,i)=>renderPost(p,i,pseudo.length)).join('');
+    return;
+  }
+  section.style.display='';
+  countEl.textContent=`(${posts.length} email${posts.length!==1?'s':''} in thread)`;
+  container.innerHTML=posts.map((p,i)=>renderPost(p,i,posts.length)).join('');
 }
 function renderComments(t){
   document.getElementById('tm-comment-count').textContent=t.comments?.length||0;
