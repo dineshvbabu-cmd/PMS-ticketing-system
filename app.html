@@ -241,6 +241,7 @@ textarea.form-control{resize:vertical;min-height:80px}
           <strong>Auto-detection rules:</strong> Status is auto-assigned from email content and reply count. You can always override it manually by clicking the status buttons on any ticket.
           Tickets older than 30 days with replies are automatically marked <strong>Resolved</strong> — reflecting the team's day-to-day resolution practice.
           Tickets with 3+ replies older than 7 days are also auto-resolved.
+          <br><strong style="color:#0d9488">📋 Report category:</strong> Emails detected as automated/scheduled reports (weekly overdue, sync reports, daily/monthly PMS reports) are always auto-classified as <strong>Report</strong> and immediately marked <strong>Resolved</strong> — they are informational and require no action.
         </div>
       </div>
     </div>
@@ -255,7 +256,7 @@ textarea.form-control{resize:vertical;min-height:80px}
       <select id="f-status" onchange="renderTicketList()"><option value="">All Status</option><option>Open</option><option>In Progress</option><option>Pending</option><option>Resolved</option><option>Closed</option></select>
       <select id="f-priority" onchange="renderTicketList()"><option value="">All Priority</option><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select>
       <select id="f-engineer" onchange="renderTicketList()"><option value="">All Engineers</option><option value="v.boppudi@aships.co.uk">V. Boppudi</option><option value="a.desingh@aships.co.uk">A. Desingh</option><option value="c.borse@aships.co.uk">C. Borse</option><option value="d.babu@aships.co.uk">D. Babu</option></select>
-      <select id="f-category" onchange="renderTicketList()"><option value="">All Categories</option><option>Bug Report</option><option>Vessel Support</option><option>Feature Request</option><option>Access Issue</option><option>Data Issue</option><option>Integration</option><option>Performance</option><option>Other</option></select>
+      <select id="f-category" onchange="renderTicketList()"><option value="">All Categories</option><option>Bug Report</option><option>Vessel Support</option><option>Feature Request</option><option>Access Issue</option><option>Data Issue</option><option>Integration</option><option>Performance</option><option>Report</option><option>Other</option></select>
       <span id="ticket-count" style="font-size:12px;color:#94a3b8;margin-left:auto"></span>
     </div>
     <div id="bulk-bar">
@@ -331,7 +332,7 @@ textarea.form-control{resize:vertical;min-height:80px}
         <div><div class="section-title">Reporter</div><div id="tm-reporter" style="font-size:13px"></div></div>
         <div><div class="section-title">Assignee</div><select id="tm-assignee" class="form-control" style="font-size:13px" onchange="updateTicketField('assignee',this.value)"><option value="v.boppudi@aships.co.uk">V. Boppudi</option><option value="a.desingh@aships.co.uk">A. Desingh</option><option value="c.borse@aships.co.uk">C. Borse</option><option value="d.babu@aships.co.uk">D. Babu</option></select></div>
         <div><div class="section-title">Priority</div><select id="tm-priority" class="form-control" style="font-size:13px" onchange="updateTicketField('priority',this.value)"><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select></div>
-        <div><div class="section-title">Category</div><select id="tm-category" class="form-control" style="font-size:13px" onchange="updateTicketField('category',this.value)"><option>Bug Report</option><option>Vessel Support</option><option>Feature Request</option><option>Access Issue</option><option>Data Issue</option><option>Integration</option><option>Performance</option><option>Other</option></select></div>
+        <div><div class="section-title">Category</div><select id="tm-category" class="form-control" style="font-size:13px" onchange="updateTicketField('category',this.value)"><option>Bug Report</option><option>Vessel Support</option><option>Feature Request</option><option>Access Issue</option><option>Data Issue</option><option>Integration</option><option>Performance</option><option>Report</option><option>Other</option></select></div>
         <div><div class="section-title">Created</div><div id="tm-created" style="font-size:13px"></div></div>
         <div><div class="section-title">Replies</div><div id="tm-replies" style="font-size:13px"></div></div>
       </div>
@@ -367,7 +368,7 @@ textarea.form-control{resize:vertical;min-height:80px}
       <button class="btn btn-secondary" style="width:100%;margin-bottom:10px" onclick="aiClassifyNew()">Auto-classify with AI</button>
       <div id="nt-ai-hint" style="font-size:12px;color:#6d28d9;display:none;padding:8px 12px;background:#f3e8ff;border-radius:8px;margin-bottom:10px"></div>
       <div class="grid-2" style="gap:10px">
-        <div class="form-group"><label class="form-label">Category</label><select class="form-control" id="nt-category"><option>Bug Report</option><option>Vessel Support</option><option>Feature Request</option><option>Access Issue</option><option>Data Issue</option><option>Integration</option><option>Performance</option><option>Other</option></select></div>
+        <div class="form-group"><label class="form-label">Category</label><select class="form-control" id="nt-category"><option>Bug Report</option><option>Vessel Support</option><option>Feature Request</option><option>Access Issue</option><option>Data Issue</option><option>Integration</option><option>Performance</option><option>Report</option><option>Other</option></select></div>
         <div class="form-group"><label class="form-label">Priority</label><select class="form-control" id="nt-priority"><option>Low</option><option selected>Medium</option><option>High</option><option>Critical</option></select></div>
         <div class="form-group"><label class="form-label">Reporter *</label><input type="email" class="form-control" id="nt-reporter" placeholder="user@company.com"></div>
         <div class="form-group"><label class="form-label">Assignee</label><select class="form-control" id="nt-assignee"><option value="v.boppudi@aships.co.uk">V. Boppudi</option><option value="a.desingh@aships.co.uk">A. Desingh</option><option value="c.borse@aships.co.uk">C. Borse</option><option value="d.babu@aships.co.uk">D. Babu</option></select></div>
@@ -421,6 +422,7 @@ const CAT_META = {
   'Data Issue':      {icon:'D',bg:'#fefce8',col:'#a16207'},
   'Integration':     {icon:'I',bg:'#ecfeff',col:'#0e7490'},
   'Performance':     {icon:'P',bg:'#f0fdf4',col:'#15803d'},
+  'Report':          {icon:'R',bg:'#f0fdfa',col:'#0d9488'},
   'Other':           {icon:'O',bg:'#f8fafc',col:'#475569'},
 };
 const STATUS_BADGE={'Open':'badge-blue','In Progress':'badge-yellow','Pending':'badge-purple','Resolved':'badge-green','Closed':'badge-gray'};
@@ -655,6 +657,8 @@ function detectStatus(replyCount, latestBody, description, reporter, created){
 
 function detectCategory(subject,body){
   const t=((subject||'')+' '+(body||'')).toLowerCase();
+  // Report — automated/scheduled/overdue reports (checked first — always Resolved)
+  if(/overdue.*report|report.*overdue|weekly.*report|daily.*report|monthly.*report|fortnightly.*report|consolidated.*report|report.*consolid|sync.*report|report.*sync|synchroni[sz].*report|pms.*sync|scheduled.*report|automated.*report|system.*generat|defect.*overdue|overdue.*job.*report|cbm.*report|report.*cbm|weekly.*overdue|overdue.*weekly|daily.*overdue/.test(t)) return 'Report';
   // Access Issue — login/password/user account problems (check before vessel to avoid false positives)
   if(/access|login|password|sign.?in|unable to log|cannot log|new user|create.*user|user.*creat|account|credential|unlock|forgot.*pass|reset.*pass|user.*setup|set up.*user/.test(t)) return 'Access Issue';
   // Vessel Support — vessel/ship names (MV/MT/MS prefix) or PMS maintenance terms
@@ -740,7 +744,8 @@ async function triggerSync(isAuto){
         if(changed){ex.updated=now;updated++;}
       }else{
         const c=cls[ni++]||{};
-        tickets.push({id:'TKT-'+Date.now()+'-'+Math.random().toString(36).slice(2,5),title:c.title||email.subject||'No Subject',description:email.bodyPreview||'',category:c.category||'Other',priority:c.priority||'Medium',status:autoStatus,reporter:email.from?.emailAddress?.address||'unknown',assignee:detectEngineer(email),created:email.receivedDateTime||now,updated:now,lastReplyDate:email.lastReplyDate||now,latestBody:email.latestBody||'',replyCount:email.replyCount||0,comments:[],outlookRef:email.id,webLink:email.webLink||'',hasAttachments:email.hasAttachments||false,source:'outlook',manualStatus:false});
+        const _cat=c.category||'Other';const _finalStatus=_cat==='Report'?'Resolved':autoStatus;
+        tickets.push({id:'TKT-'+Date.now()+'-'+Math.random().toString(36).slice(2,5),title:c.title||email.subject||'No Subject',description:email.bodyPreview||'',category:_cat,priority:c.priority||'Medium',status:_finalStatus,reporter:email.from?.emailAddress?.address||'unknown',assignee:detectEngineer(email),created:email.receivedDateTime||now,updated:now,lastReplyDate:email.lastReplyDate||now,latestBody:email.latestBody||'',replyCount:email.replyCount||0,comments:[],outlookRef:email.id,webLink:email.webLink||'',hasAttachments:email.hasAttachments||false,source:'outlook',manualStatus:false});
         imported++;
       }
     }
@@ -792,17 +797,20 @@ function reClassifyTickets(){
   ];
   tickets.forEach(t=>{
     if(t.source!=='outlook') return;
-    // Category
-    if(!t.manualCategory&&t.category==='Other'){
-      const nc=detectCategory(t.title,t.description);if(nc!=='Other'){t.category=nc;changed=true;}
+    // Category — re-classify Other; also try to upgrade non-Other tickets to Report if they match
+    if(!t.manualCategory){
+      if(t.category==='Other'||t.category!=='Report'){
+        const nc=detectCategory(t.title,t.description);
+        if(nc!==t.category&&(t.category==='Other'||nc==='Report')){t.category=nc;changed=true;}
+      }
     }
     // Priority
     if(!t.manualPriority&&t.priority==='Medium'){
       const np=detectPriority(t.title,t.description);if(np!=='Medium'){t.priority=np;changed=true;}
     }
-    // Status — replyCount and latestBody are stored, so we can always re-derive
+    // Status — Report tickets are always Resolved (informational, no action needed)
     if(!t.manualStatus){
-      const ns=detectStatus(t.replyCount||0,t.latestBody||'',t.description||'',t.reporter||'',t.created||'');
+      const ns=t.category==='Report'?'Resolved':detectStatus(t.replyCount||0,t.latestBody||'',t.description||'',t.reporter||'',t.created||'');
       if(t.status!==ns){t.status=ns;changed=true;}
     }
     // Engineer — check name hints in title + description + latestBody
