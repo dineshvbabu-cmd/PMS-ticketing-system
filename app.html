@@ -554,15 +554,37 @@ function detectEngineer(email){
 }
 
 // Status lifecycle:
-// Open       → vessel/person raised issue, no engineer reply yet
-// In Progress → engineer has acknowledged and is working on it
-// Resolved   → engineer confirmed the task is done
-// Closed     → vessel/person acknowledged the resolution
-function detectStatus(replyCount,latestBody){
-  const b=(latestBody||'').toLowerCase();
+// Open       → vessel raised issue, no engineer reply yet
+// In Progress → engineer is actively working on it
+// Resolved   → engineer confirmed task done, or engineer sent the email (outgoing)
+// Closed     → vessel acknowledged the resolution
+function detectStatus(replyCount, latestBody, description, reporter, created){
+  const last=(latestBody||'').toLowerCase();
+  const desc=(description||'').toLowerCase();
+  const all=last+' '+desc;
+
+  // If the email was SENT BY an engineer it is an outgoing response — mark Resolved
+  if(ENGINEERS.some(e=>(reporter||'').toLowerCase()===e.email.toLowerCase())) return 'Resolved';
+
+  // No replies yet → vessel is still waiting
   if(replyCount===0) return 'Open';
-  if(replyCount>=2&&/\b(thank you|thanks|noted|confirmed|acknowledged|great|understood|ok noted|appreciate|received|duly noted)\b/.test(b)) return 'Closed';
-  if(/\b(resolv|complet|been fix|has been|sorted|rectif|no further|please let us know|if you have any further|issue.*address|been attend|been clos|task.*done)\b/.test(b)) return 'Resolved';
+
+  // Vessel/person acknowledged after resolution → Closed
+  if(replyCount>=2&&/\b(thank you|thanks|noted|confirmed|acknowledged|great|understood|ok noted|appreciate|received|duly noted)\b/.test(last)) return 'Closed';
+
+  // Resolution language anywhere in thread or description
+  const resRe=/resolv|complet|been fix|has been (done|sorted|updated|attend|address|clos)|sorted|rectif|no further action|please let us know if|if you have any further|issue.*address|task.*done|able to (raise|proceed|submit)|you may proceed|please proceed|can now proceed|vessel.*confirm|inform.*vessel|requisition.*rais|has been inform|action.*taken|action.*complet|been process|updated.*vessel|vessel.*updated/;
+  if(resRe.test(all)) return 'Resolved';
+
+  // Age heuristic: team resolves issues on a day-to-day basis.
+  // Tickets with at least 1 reply that are older than 30 days are almost certainly resolved.
+  if(created){
+    const ageDays=(Date.now()-new Date(created).getTime())/86400000;
+    if(ageDays>30&&replyCount>=1) return 'Resolved';
+    // Tickets 7–30 days old with multiple replies are very likely resolved too
+    if(ageDays>7&&replyCount>=3) return 'Resolved';
+  }
+
   return 'In Progress';
 }
 
@@ -645,7 +667,7 @@ async function triggerSync(isAuto){
     if(reclassified>0)console.log(`Re-classified ${reclassified} tickets from Other`);
     let ni=0;
     for(const email of emails){
-      const ex=byRef[email.id];const now=new Date().toISOString();const autoStatus=detectStatus(email.replyCount||0,email.latestBody||'');
+      const ex=byRef[email.id];const now=new Date().toISOString();const autoStatus=detectStatus(email.replyCount||0,email.latestBody||'',email.bodyPreview||'',email.from?.emailAddress?.address||'',email.receivedDateTime||'');
       if(ex){
         let changed=false;
         if(!ex.manualStatus&&ex.status!==autoStatus){ex.status=autoStatus;changed=true;}
@@ -715,7 +737,7 @@ function reClassifyTickets(){
     }
     // Status — replyCount and latestBody are stored, so we can always re-derive
     if(!t.manualStatus){
-      const ns=detectStatus(t.replyCount||0,t.latestBody||'');
+      const ns=detectStatus(t.replyCount||0,t.latestBody||'',t.description||'',t.reporter||'',t.created||'');
       if(t.status!==ns){t.status=ns;changed=true;}
     }
     // Engineer — check name hints in title + description + latestBody
