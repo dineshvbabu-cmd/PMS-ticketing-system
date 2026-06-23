@@ -154,10 +154,10 @@ textarea.form-control{resize:vertical;min-height:80px}
 </div>
 <main>
   <div class="grid-4" style="margin-bottom:14px">
-    <div class="stat-card"><div class="stat-val" id="s-open" style="color:var(--blue)">0</div><div class="stat-label">Open</div></div>
-    <div class="stat-card"><div class="stat-val" id="s-inprog" style="color:var(--amber)">0</div><div class="stat-label">In Progress</div></div>
-    <div class="stat-card"><div class="stat-val" id="s-resolved" style="color:var(--green)">0</div><div class="stat-label">Resolved</div></div>
-    <div class="stat-card"><div class="stat-val" id="s-critical" style="color:var(--red)">0</div><div class="stat-label">Critical</div></div>
+    <div class="stat-card" style="cursor:pointer" onclick="goToTickets({status:'Open'})" title="View Open tickets"><div class="stat-val" id="s-open" style="color:var(--blue)">0</div><div class="stat-label">Open</div></div>
+    <div class="stat-card" style="cursor:pointer" onclick="goToTickets({status:'In Progress'})" title="View In Progress tickets"><div class="stat-val" id="s-inprog" style="color:var(--amber)">0</div><div class="stat-label">In Progress</div></div>
+    <div class="stat-card" style="cursor:pointer" onclick="goToTickets({status:'Resolved'})" title="View Resolved tickets"><div class="stat-val" id="s-resolved" style="color:var(--green)">0</div><div class="stat-label">Resolved</div></div>
+    <div class="stat-card" style="cursor:pointer" onclick="goToTickets({priority:'Critical'})" title="View Critical tickets"><div class="stat-val" id="s-critical" style="color:var(--red)">0</div><div class="stat-label">Critical</div></div>
   </div>
   <div class="card" style="margin-bottom:14px">
     <div class="section-title">Engineer Workload</div>
@@ -752,6 +752,23 @@ function saveSettings(){cfg.apiKey=document.getElementById('cfg-apikey').value.t
 function closeModal(id){document.getElementById(id).style.display='none';}
 function openNewTicket(){document.getElementById('new-ticket-modal').style.display='flex';}
 function switchTab(t,el){document.getElementById('tab-dashboard').style.display=t==='dashboard'?'':'none';document.getElementById('tab-tickets').style.display=t==='tickets'?'':'none';document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));el.classList.add('active');}
+
+function goToTickets(f){
+  if(f.status!==undefined)document.getElementById('f-status').value=f.status||'';
+  if(f.priority!==undefined)document.getElementById('f-priority').value=f.priority||'';
+  if(f.engineer!==undefined)document.getElementById('f-engineer').value=f.engineer||'';
+  if(f.category!==undefined)document.getElementById('f-category').value=f.category||'';
+  if(f.month){
+    const [yr,mo]=f.month.split('-');
+    const last=new Date(+yr,+mo,0).getDate();
+    document.getElementById('filter-from').value=`${yr}-${mo}-01`;
+    document.getElementById('filter-to').value=`${yr}-${mo}-${String(last).padStart(2,'0')}`;
+  }
+  const ticketEl=[...document.querySelectorAll('.tab')].find(el=>el.textContent.trim()==='Tickets');
+  if(ticketEl)switchTab('tickets',ticketEl);
+  renderAll();
+  document.getElementById('tab-tickets').scrollIntoView({behavior:'smooth',block:'start'});
+}
 function setSyncBar(cls,msg){const b=document.getElementById('sync-bar');b.className=cls;b.style.display='flex';b.querySelector('#sync-msg').textContent=msg;b.querySelector('.spin').style.display=cls==='fetching'||cls==='classifying'?'inline-block':'none';}
 function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function toast(msg,type='info'){const c=document.getElementById('toast');const d=document.createElement('div');d.className='toast-item '+type;d.textContent=msg;c.appendChild(d);setTimeout(()=>d.remove(),4000);}
@@ -782,7 +799,7 @@ function renderWorkload(ft){
   document.getElementById('workload-grid').innerHTML=ENGINEERS.map(eng=>{
     const open=ft.filter(t=>t.assignee===eng.email&&!['Resolved','Closed'].includes(t.status)).length;
     const total=ft.filter(t=>t.assignee===eng.email).length;const pct=total>0?Math.round(open/total*100):0;
-    return`<div class="card" style="padding:12px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="${eng.cls}">${eng.initials}</span><span style="font-size:13px;font-weight:600">${eng.name}</span></div><div style="font-size:24px;font-weight:800">${open} <span style="font-size:12px;font-weight:400;color:#94a3b8">open</span></div><div style="font-size:11px;color:#94a3b8">${total} total</div><div class="workload-bar"><div class="workload-fill" style="width:${pct}%"></div></div></div>`;
+    return`<div class="card" style="cursor:pointer;padding:12px" onclick="goToTickets({engineer:'${eng.email}'})" title="View all tickets for ${eng.name}"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="${eng.cls}">${eng.initials}</span><span style="font-size:13px;font-weight:600">${eng.name}</span></div><div style="font-size:24px;font-weight:800">${open} <span style="font-size:12px;font-weight:400;color:#94a3b8">open</span></div><div style="font-size:11px;color:#94a3b8">${total} total</div><div class="workload-bar"><div class="workload-fill" style="width:${pct}%"></div></div></div>`;
   }).join('');
 }
 function renderCatTiles(ft){
@@ -797,17 +814,23 @@ function renderCatTiles(ft){
 function renderCharts(ft){
   const sc=['Open','In Progress','Pending','Resolved','Closed'].map(s=>ft.filter(t=>t.status===s).length);
   if(chartStatus)chartStatus.destroy();
-  chartStatus=new Chart(document.getElementById('chart-status'),{type:'doughnut',data:{labels:['Open','In Progress','Pending','Resolved','Closed'],datasets:[{data:sc,backgroundColor:['#3b82f6','#f59e0b','#8b5cf6','#22c55e','#94a3b8'],borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{font:{size:11}}}}}});
+  const statusLabels=['Open','In Progress','Pending','Resolved','Closed'];
+  chartStatus=new Chart(document.getElementById('chart-status'),{type:'doughnut',data:{labels:statusLabels,datasets:[{data:sc,backgroundColor:['#3b82f6','#f59e0b','#8b5cf6','#22c55e','#94a3b8'],borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,onClick:(e,els)=>{if(els.length)goToTickets({status:statusLabels[els[0].index]});},plugins:{legend:{position:'right',labels:{font:{size:11}}}}}});
+  document.getElementById('chart-status').style.cursor='pointer';
   const mMap={};ft.forEach(t=>{if(!t.created)return;const m=t.created.slice(0,7);mMap[m]=(mMap[m]||0)+1;});
   const months=Object.keys(mMap).sort();
   if(chartTime)chartTime.destroy();
-  chartTime=new Chart(document.getElementById('chart-time'),{type:'bar',data:{labels:months,datasets:[{label:'Tickets',data:months.map(m=>mMap[m]),backgroundColor:'#3b82f6',borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
+  chartTime=new Chart(document.getElementById('chart-time'),{type:'bar',data:{labels:months,datasets:[{label:'Tickets',data:months.map(m=>mMap[m]),backgroundColor:'#3b82f6',borderRadius:6}]},options:{responsive:true,maintainAspectRatio:false,onClick:(e,els)=>{if(els.length)goToTickets({month:months[els[0].index]});},plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
+  document.getElementById('chart-time').style.cursor='pointer';
 }
 function renderEngBreakdown(ft){
   document.getElementById('eng-breakdown').innerHTML=ENGINEERS.map(eng=>{
     const et=ft.filter(t=>t.assignee===eng.email);
-    const cats=Object.keys(CAT_META).filter(c=>et.some(t=>t.category===c)).map(c=>`<span style="font-size:11px;background:${CAT_META[c].bg};color:${CAT_META[c].col};padding:2px 8px;border-radius:99px;font-weight:600">${CAT_META[c].icon} ${c}: ${et.filter(t=>t.category===c).length}</span>`).join('');
-    return`<div class="card" style="padding:12px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="${eng.cls}">${eng.initials}</span><span style="font-size:13px;font-weight:700">${eng.name}</span></div><div style="display:flex;flex-wrap:wrap;gap:4px">${cats||'<span style="color:#94a3b8;font-size:11px">No tickets</span>'}</div></div>`;
+    const cats=Object.keys(CAT_META).filter(c=>et.some(t=>t.category===c)).map(c=>{
+      const cnt=et.filter(t=>t.category===c).length;
+      return`<span style="cursor:pointer;font-size:11px;background:${CAT_META[c].bg};color:${CAT_META[c].col};padding:2px 8px;border-radius:99px;font-weight:600" title="View ${eng.name} · ${c}" onclick="event.stopPropagation();goToTickets({engineer:'${eng.email}',category:'${c}'})">${CAT_META[c].icon} ${c}: ${cnt}</span>`;
+    }).join('');
+    return`<div class="card" style="cursor:pointer;padding:12px" onclick="goToTickets({engineer:'${eng.email}'})" title="View all tickets for ${eng.name}"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="${eng.cls}">${eng.initials}</span><span style="font-size:13px;font-weight:700">${eng.name}</span><span style="font-size:11px;color:#94a3b8;margin-left:auto">${et.length} total ›</span></div><div style="display:flex;flex-wrap:wrap;gap:4px">${cats||'<span style="color:#94a3b8;font-size:11px">No tickets</span>'}</div></div>`;
   }).join('');
 }
 function renderTicketList(){
