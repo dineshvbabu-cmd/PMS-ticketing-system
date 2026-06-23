@@ -166,36 +166,34 @@ textarea.form-control{resize:vertical;min-height:80px}
   <button onclick="document.getElementById('sync-bar').style.display='none'" style="margin-left:auto;background:none;border:none;cursor:pointer;color:inherit;font-size:16px">x</button>
 </div>
 <main>
-  <div class="grid-4" style="margin-bottom:14px">
+  <div class="grid-3" style="margin-bottom:14px">
     <div class="stat-card" style="cursor:pointer" onclick="goToTickets({status:'Open'})" title="View Open tickets"><div class="stat-val" id="s-open" style="color:var(--blue)">0</div><div class="stat-label">Open</div></div>
     <div class="stat-card" style="cursor:pointer" onclick="goToTickets({status:'In Progress'})" title="View In Progress tickets"><div class="stat-val" id="s-inprog" style="color:var(--amber)">0</div><div class="stat-label">In Progress</div></div>
     <div class="stat-card" style="cursor:pointer" onclick="goToTickets({status:'Resolved'})" title="View Resolved tickets"><div class="stat-val" id="s-resolved" style="color:var(--green)">0</div><div class="stat-label">Resolved</div></div>
-    <div class="stat-card" style="cursor:pointer" onclick="goToTickets({priority:'Critical'})" title="View Critical tickets"><div class="stat-val" id="s-critical" style="color:var(--red)">0</div><div class="stat-label">Critical</div></div>
   </div>
   <div class="card" style="margin-bottom:14px">
     <div class="section-title">Engineer Workload</div>
     <div class="grid-3" id="workload-grid"></div>
+  </div>
+  <div class="card" style="margin-bottom:14px">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span style="font-size:12px;font-weight:600;color:#64748b;white-space:nowrap">From</span>
+      <input type="date" id="filter-from" class="form-control" style="width:150px" onchange="renderAll()">
+      <span style="font-size:12px;font-weight:600;color:#64748b">To</span>
+      <input type="date" id="filter-to" class="form-control" style="width:150px" onchange="renderAll()">
+      <button class="btn btn-secondary btn-sm" onclick="setQuickRange(7)">7d</button>
+      <button class="btn btn-secondary btn-sm" onclick="setQuickRange(30)">30d</button>
+      <button class="btn btn-secondary btn-sm" onclick="setQuickRange(90)">90d</button>
+      <button class="btn btn-secondary btn-sm" onclick="setQuickRange(180)">6mo</button>
+      <button class="btn btn-secondary btn-sm" onclick="setQuickRange(365)">1yr</button>
+      <button class="btn btn-secondary btn-sm" onclick="clearRange()">All time</button>
+    </div>
   </div>
   <div class="tabs">
     <div class="tab active" onclick="switchTab('dashboard',this)">Dashboard</div>
     <div class="tab" onclick="switchTab('tickets',this)">Tickets</div>
   </div>
   <div id="tab-dashboard">
-    <div class="card" style="margin-bottom:14px">
-      <div class="section-title">Date Range</div>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <label style="font-size:12px;font-weight:600;color:#64748b">From</label>
-        <input type="date" id="filter-from" class="form-control" style="width:160px" onchange="renderAll()">
-        <label style="font-size:12px;font-weight:600;color:#64748b">To</label>
-        <input type="date" id="filter-to" class="form-control" style="width:160px" onchange="renderAll()">
-        <button class="btn btn-secondary btn-sm" onclick="setQuickRange(7)">7d</button>
-        <button class="btn btn-secondary btn-sm" onclick="setQuickRange(30)">30d</button>
-        <button class="btn btn-secondary btn-sm" onclick="setQuickRange(90)">90d</button>
-        <button class="btn btn-secondary btn-sm" onclick="setQuickRange(180)">6mo</button>
-        <button class="btn btn-secondary btn-sm" onclick="setQuickRange(365)">1yr</button>
-        <button class="btn btn-secondary btn-sm" onclick="clearRange()">All time</button>
-      </div>
-    </div>
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div class="section-title" style="margin:0">Tickets by Category</div>
@@ -210,9 +208,9 @@ textarea.form-control{resize:vertical;min-height:80px}
     <div class="card" style="margin-bottom:14px;padding:14px 18px">
       <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none" onclick="const b=document.getElementById('status-guide-body');const a=document.getElementById('status-guide-arrow');b.style.display=b.style.display==='none'?'':'none';a.textContent=b.style.display==='none'?'▸':'▾'">
         <span class="section-title" style="margin:0">Status Guide — How tickets move through the lifecycle</span>
-        <span id="status-guide-arrow" style="font-size:13px;color:#94a3b8">▾</span>
+        <span id="status-guide-arrow" style="font-size:13px;color:#94a3b8">▸</span>
       </div>
-      <div id="status-guide-body" style="margin-top:12px">
+      <div id="status-guide-body" style="margin-top:12px;display:none">
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
           <div style="display:flex;gap:12px;align-items:flex-start;background:#eff6ff;border-left:3px solid #3b82f6;border-radius:6px;padding:10px 12px">
             <span style="font-size:18px;margin-top:1px">📬</span>
@@ -1134,7 +1132,6 @@ function renderStats(ft){
   document.getElementById('s-open').textContent=ft.filter(t=>t.status==='Open').length;
   document.getElementById('s-inprog').textContent=ft.filter(t=>t.status==='In Progress').length;
   document.getElementById('s-resolved').textContent=ft.filter(t=>['Resolved','Closed'].includes(t.status)).length;
-  document.getElementById('s-critical').textContent=ft.filter(t=>t.priority==='Critical').length;
 }
 function renderWorkload(ft){
   document.getElementById('workload-grid').innerHTML=ENGINEERS.map(eng=>{
