@@ -194,6 +194,49 @@ textarea.form-control{resize:vertical;min-height:80px}
       <div class="card"><div class="section-title">Status Breakdown</div><div class="chart-wrap"><canvas id="chart-status"></canvas></div></div>
       <div class="card"><div class="section-title">Tickets Over Time</div><div class="chart-wrap"><canvas id="chart-time"></canvas></div></div>
     </div>
+    <div class="card" style="margin-bottom:14px;padding:14px 18px">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none" onclick="const b=document.getElementById('status-guide-body');const a=document.getElementById('status-guide-arrow');b.style.display=b.style.display==='none'?'':'none';a.textContent=b.style.display==='none'?'▸':'▾'">
+        <span class="section-title" style="margin:0">Status Guide — How tickets move through the lifecycle</span>
+        <span id="status-guide-arrow" style="font-size:13px;color:#94a3b8">▾</span>
+      </div>
+      <div id="status-guide-body" style="margin-top:12px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
+          <div style="display:flex;gap:12px;align-items:flex-start;background:#eff6ff;border-left:3px solid #3b82f6;border-radius:6px;padding:10px 12px">
+            <span style="font-size:18px;margin-top:1px">📬</span>
+            <div>
+              <div style="font-weight:700;color:#3b82f6;font-size:13px;margin-bottom:3px">Open</div>
+              <div style="font-size:12px;color:#475569;line-height:1.5">A vessel or user has sent an email to PMS Support. No engineer has replied yet. The issue is waiting to be picked up.</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start;background:#fffbeb;border-left:3px solid #f59e0b;border-radius:6px;padding:10px 12px">
+            <span style="font-size:18px;margin-top:1px">🔧</span>
+            <div>
+              <div style="font-weight:700;color:#d97706;font-size:13px;margin-bottom:3px">In Progress</div>
+              <div style="font-size:12px;color:#475569;line-height:1.5">An engineer has replied and is actively working on it. The thread is ongoing and a resolution has not yet been confirmed.</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start;background:#f0fdf4;border-left:3px solid #22c55e;border-radius:6px;padding:10px 12px">
+            <span style="font-size:18px;margin-top:1px">✅</span>
+            <div>
+              <div style="font-weight:700;color:#16a34a;font-size:13px;margin-bottom:3px">Resolved</div>
+              <div style="font-size:12px;color:#475569;line-height:1.5">Engineer confirmed the task is done — e.g. "vessel is able to proceed / requisition raised / issue has been resolved". Also set when the engineer sent the original email (outgoing reply).</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start;background:#f8fafc;border-left:3px solid #94a3b8;border-radius:6px;padding:10px 12px">
+            <span style="font-size:18px;margin-top:1px">🔒</span>
+            <div>
+              <div style="font-weight:700;color:#64748b;font-size:13px;margin-bottom:3px">Closed</div>
+              <div style="font-size:12px;color:#475569;line-height:1.5">The vessel or user acknowledged the resolution — e.g. "Thank you / Noted / Confirmed". The ticket is fully complete with both sides confirming.</div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:10px;padding:8px 12px;background:#fafafa;border-radius:6px;font-size:11px;color:#64748b;line-height:1.6">
+          <strong>Auto-detection rules:</strong> Status is auto-assigned from email content and reply count. You can always override it manually by clicking the status buttons on any ticket.
+          Tickets older than 30 days with replies are automatically marked <strong>Resolved</strong> — reflecting the team's day-to-day resolution practice.
+          Tickets with 3+ replies older than 7 days are also auto-resolved.
+        </div>
+      </div>
+    </div>
     <div class="card" style="margin-bottom:14px">
       <div class="section-title">Engineer Breakdown</div>
       <div class="grid-3" id="eng-breakdown"></div>
