@@ -614,7 +614,12 @@ async function _processConv(groupId,conv){
     const fp=posts[0];if(!fp)return null;const lp=posts[posts.length-1];
     const allTo=[],allCc=[];
     posts.forEach(p=>{(p.toRecipients||[]).forEach(r=>allTo.push(r));(p.ccRecipients||[]).forEach(r=>allCc.push(r));(p.newParticipants||[]).forEach(r=>allTo.push(r));});
-    return{id:conv.id,subject:conv.topic||'No Subject',from:{emailAddress:{address:fp.from?.emailAddress?.address||fp.sender?.emailAddress?.address||'unknown',name:fp.from?.emailAddress?.name||''}},receivedDateTime:fp.receivedDateTime||conv.lastDeliveredDateTime,lastReplyDate:lp.receivedDateTime||conv.lastDeliveredDateTime,bodyPreview:conv.preview||(fp.body?.content||'').replace(/<[^>]+>/g,'').replace(/\s+/g,' ').slice(0,300),latestBody:(lp.body?.content||'').replace(/<[^>]+>/g,'').replace(/\s+/g,' ').slice(0,400),replyCount:Math.max(0,posts.length-1),hasAttachments:conv.hasAttachments||false,toRecipients:allTo,ccRecipients:allCc,webLink:'https://outlook.office.com/mail/group/aships.co.uk/pmslink.support'};
+    // Infer at least 1 reply if the conversation was updated after the first post
+    const hasRepliesInferred=new Date(conv.lastDeliveredDateTime)>new Date(fp.receivedDateTime||0);
+    const replyCount=posts.length>1?posts.length-1:(hasRepliesInferred?1:0);
+    // Gather all post bodies to give detectStatus more signal
+    const allBodies=posts.map(p=>(p.body?.content||'').replace(/<[^>]+>/g,'').replace(/\s+/g,' ').slice(0,200)).join(' ');
+    return{id:conv.id,subject:conv.topic||'No Subject',from:{emailAddress:{address:fp.from?.emailAddress?.address||fp.sender?.emailAddress?.address||'unknown',name:fp.from?.emailAddress?.name||''}},receivedDateTime:fp.receivedDateTime||conv.lastDeliveredDateTime,lastReplyDate:lp.receivedDateTime||conv.lastDeliveredDateTime,bodyPreview:conv.preview||(fp.body?.content||'').replace(/<[^>]+>/g,'').replace(/\s+/g,' ').slice(0,300),latestBody:allBodies.slice(0,800),replyCount,hasAttachments:conv.hasAttachments||false,toRecipients:allTo,ccRecipients:allCc,webLink:'https://outlook.office.com/mail/group/aships.co.uk/pmslink.support'};
   }catch(e){console.warn('Thread error:',conv.topic,e.message);return null;}
 }
 
@@ -668,16 +673,15 @@ function detectStatus(replyCount, latestBody, description, reporter, created){
   if(replyCount>=2&&/\b(thank you|thanks|noted|confirmed|acknowledged|great|understood|ok noted|appreciate|received|duly noted)\b/.test(last)) return 'Closed';
 
   // Resolution language anywhere in thread or description
-  const resRe=/resolv|complet|been fix|has been (done|sorted|updated|attend|address|clos)|sorted|rectif|no further action|please let us know if|if you have any further|issue.*address|task.*done|able to (raise|proceed|submit)|you may proceed|please proceed|can now proceed|vessel.*confirm|inform.*vessel|requisition.*rais|has been inform|action.*taken|action.*complet|been process|updated.*vessel|vessel.*updated/;
+  const resRe=/resolv|complet|been fix|has been (done|sorted|updated|attend|address|clos)|sorted|rectif|no further action|please let us know if|if you have any further|issue.*address|task.*done|able to (raise|proceed|submit)|you may proceed|please proceed|can now proceed|vessel.*confirm|inform.*vessel|requisition.*rais|has been inform|action.*taken|action.*complet|been process|updated.*vessel|vessel.*updated|\bdone\b|\bok\b|\bnoted\b|\bunderstood\b|will do|checked|verified|confirmed|updated in|corrected|fixed in|applied|closed in|actioned|forwarded to vessel|vessel.*informed|informed.*vessel/;
   if(resRe.test(all)) return 'Resolved';
 
-  // Age heuristic: team resolves issues on a day-to-day basis.
-  // Tickets with at least 1 reply that are older than 30 days are almost certainly resolved.
+  // Age heuristic: team resolves issues on day-to-day basis (per manager confirmation)
   if(created){
     const ageDays=(Date.now()-new Date(created).getTime())/86400000;
-    if(ageDays>30&&replyCount>=1) return 'Resolved';
-    // Tickets 7–30 days old with multiple replies are very likely resolved too
-    if(ageDays>7&&replyCount>=3) return 'Resolved';
+    if(ageDays>14&&replyCount>=1) return 'Resolved'; // 2+ weeks with any reply → resolved
+    if(ageDays>7 &&replyCount>=2) return 'Resolved'; // 1 week with 2+ replies → resolved
+    if(ageDays>3 &&replyCount>=3) return 'Resolved'; // 3 days with 3+ replies → resolved
   }
 
   return 'In Progress';
