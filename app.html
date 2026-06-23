@@ -786,8 +786,10 @@ function renderWorkload(ft){
   }).join('');
 }
 function renderCatTiles(ft){
+  // Count from date-range-only set so tiles always show real totals regardless of active category filter
+  const dateFiltered=tickets.filter(t=>inRange(t));
   document.getElementById('cat-tiles').innerHTML=Object.keys(CAT_META).map(cat=>{
-    const count=ft.filter(t=>t.category===cat).length;const m=CAT_META[cat];const active=activeCatFilter===cat;
+    const count=dateFiltered.filter(t=>t.category===cat).length;const m=CAT_META[cat];const active=activeCatFilter===cat;
     return`<div class="cat-tile${active?' active':''}" style="background:${m.bg};color:${m.col}" onclick="activeCatFilter=activeCatFilter==='${cat}'?null:'${cat}';renderAll()"><div style="font-size:20px">${m.icon}</div><div style="font-size:22px;font-weight:800">${count}</div><div style="font-size:11px;font-weight:700">${cat}</div></div>`;
   }).join('');
   document.getElementById('active-cat-clear').style.display=activeCatFilter?'':'none';
