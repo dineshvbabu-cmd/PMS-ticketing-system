@@ -686,22 +686,48 @@ async function showApp(){
   document.getElementById('cfg-apikey').value=cfg.apiKey||'';
   updateTokenUsageDisplay();setQuickRange(30);
   await loadTicketsFromServer();
-  // Re-classify any tickets that ended up as Other (e.g. imported before API key was set)
-  let _reclassChanged=false;
-  tickets.forEach(t=>{
-    if(!t.manualCategory&&t.category==='Other'&&t.source==='outlook'){
-      const nc=detectCategory(t.title,t.description);if(nc!=='Other'){t.category=nc;_reclassChanged=true;}
-    }
-    if(!t.manualPriority&&t.priority==='Medium'&&t.source==='outlook'){
-      const np=detectPriority(t.title,t.description);if(np!=='Medium'){t.priority=np;_reclassChanged=true;}
-    }
-  });
-  if(_reclassChanged)saveTickets();
+  reClassifyTickets();
   renderAll();scheduleRefresh();checkAutoSync();
 }
 document.addEventListener('visibilitychange',()=>{
-  if(!document.hidden&&auth.accessToken) loadTicketsFromServer().then(()=>renderAll());
+  if(!document.hidden&&auth.accessToken) loadTicketsFromServer().then(()=>{reClassifyTickets();renderAll();});
 });
+
+// Re-apply all auto-detections to every Outlook ticket that hasn't been manually overridden.
+// Runs on page load and after every server refresh so DB staleness doesn't matter.
+function reClassifyTickets(){
+  let changed=false;
+  const engHints=[
+    {eng:ENGINEERS[0], h:['boppudi','vineeth']},
+    {eng:ENGINEERS[1], h:['desingh','arvindh','arvind']},
+    {eng:ENGINEERS[2], h:['borse']},
+    {eng:ENGINEERS[3], h:['babu','dinesh']},
+  ];
+  tickets.forEach(t=>{
+    if(t.source!=='outlook') return;
+    // Category
+    if(!t.manualCategory&&t.category==='Other'){
+      const nc=detectCategory(t.title,t.description);if(nc!=='Other'){t.category=nc;changed=true;}
+    }
+    // Priority
+    if(!t.manualPriority&&t.priority==='Medium'){
+      const np=detectPriority(t.title,t.description);if(np!=='Medium'){t.priority=np;changed=true;}
+    }
+    // Status — replyCount and latestBody are stored, so we can always re-derive
+    if(!t.manualStatus){
+      const ns=detectStatus(t.replyCount||0,t.latestBody||'');
+      if(t.status!==ns){t.status=ns;changed=true;}
+    }
+    // Engineer — check name hints in title + description + latestBody
+    if(!t.manualAssignee){
+      const hay=((t.title||'')+' '+(t.description||'')+' '+(t.latestBody||'')).toLowerCase();
+      const found=engHints.find(({h})=>h.some(x=>hay.includes(x)));
+      const target=found?found.eng.email:ENGINEERS[0].email;
+      if(t.assignee!==target){t.assignee=target;changed=true;}
+    }
+  });
+  if(changed)saveTickets();
+}
 
 function showTokenDetails(){alert(`Claude API Usage\n\nCalls: ${tokenUsage.calls}\nInput: ${tokenUsage.input.toLocaleString()} tokens\nOutput: ${tokenUsage.output.toLocaleString()} tokens\nEst. cost: ${tokenCost()}`);}
 
@@ -832,7 +858,11 @@ function renderComments(t){
 function setStatus(s){updateTicketField('status',s);document.querySelectorAll('.status-pill').forEach(p=>{p.classList.toggle('active',p.textContent===s);});}
 function updateTicketField(field,val){
   const t=tickets.find(x=>x.id===activeTicketId);if(!t)return;
-  t[field]=val;t.updated=new Date().toISOString();if(field==='status')t.manualStatus=true;
+  t[field]=val;t.updated=new Date().toISOString();
+  if(field==='status')t.manualStatus=true;
+  if(field==='category')t.manualCategory=true;
+  if(field==='priority')t.manualPriority=true;
+  if(field==='assignee')t.manualAssignee=true;
   saveTickets();renderAll();
 }
 function postComment(){
