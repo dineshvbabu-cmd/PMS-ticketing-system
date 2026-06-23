@@ -91,6 +91,8 @@ textarea.form-control{resize:vertical;min-height:80px}
 .comment-text{font-size:13px;color:#334155;margin-top:4px}
 .status-pill{padding:4px 10px;border-radius:99px;border:1px solid #e2e8f0;font-size:11px;font-weight:600;cursor:pointer;color:#64748b;transition:.15s;display:inline-block;margin:2px}
 .status-pill:hover{background:#f1f5f9}.status-pill.active{background:#dbeafe;border-color:#93c5fd;color:#1d4ed8}
+.status-tog{border:1px solid #e2e8f0;border-radius:99px;padding:5px 11px;font-size:11px;font-weight:600;cursor:pointer;background:#fff;color:#64748b;transition:.15s;white-space:nowrap}
+.status-tog:hover{background:#f1f5f9}.status-tog.active{background:#0f172a;color:#fff;border-color:#0f172a}
 .section-title{font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px}
 .cat-tile{border-radius:12px;padding:12px;cursor:pointer;transition:.15s;border:2px solid transparent}
 .cat-tile:hover{filter:brightness(.96)}.cat-tile.active{border-color:#2563eb}
@@ -266,7 +268,13 @@ textarea.form-control{resize:vertical;min-height:80px}
   <div id="tab-tickets" style="display:none">
     <div class="filters">
       <input type="text" id="search" placeholder="Search tickets..." oninput="renderTicketList()">
-      <select id="f-status" onchange="renderTicketList()"><option value="">All Status</option><option>Open</option><option>In Progress</option><option>Pending</option><option>Resolved</option><option>Closed</option></select>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+        <button class="status-tog" data-s="Open" onclick="toggleStatusFilter('Open')">Open</button>
+        <button class="status-tog" data-s="In Progress" onclick="toggleStatusFilter('In Progress')">In Progress</button>
+        <button class="status-tog" data-s="Pending" onclick="toggleStatusFilter('Pending')">Pending</button>
+        <button class="status-tog" data-s="Resolved" onclick="toggleStatusFilter('Resolved')">Resolved</button>
+        <button class="status-tog" data-s="Closed" onclick="toggleStatusFilter('Closed')">Closed</button>
+      </div>
       <select id="f-priority" onchange="renderTicketList()"><option value="">All Priority</option><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select>
       <select id="f-engineer" onchange="renderTicketList()"><option value="">All Engineers</option><option value="v.boppudi@aships.co.uk">V. Boppudi</option><option value="a.desingh@aships.co.uk">A. Desingh</option><option value="c.borse@aships.co.uk">C. Borse</option><option value="d.babu@aships.co.uk">D. Babu</option></select>
       <select id="f-category" onchange="renderTicketList()"><option value="">All Categories</option><option>Bug Report</option><option>Vessel Support</option><option>Feature Request</option><option>Access Issue</option><option>Data Issue</option><option>Integration</option><option>Performance</option><option>Report</option><option>Other</option></select>
@@ -486,6 +494,7 @@ const PRI_BADGE={'Low':'badge-gray','Medium':'badge-amber','High':'badge-orange'
 let tickets=[], cfg={apiKey:''};
 let auth={accessToken:'',refreshToken:'',expiresAt:0,name:'',upn:''};
 let activeTicketId=null, activeCatFilter=null, activeVesselSubFilter=null, selectedIds=new Set();
+let activeStatusFilters=new Set();
 let chartStatus=null, chartTime=null, chartVesselSub=null, autoSyncTimer=null, refreshTimer=null;
 
 const save   = (k,v)=>localStorage.setItem(k,JSON.stringify(v));
@@ -1100,9 +1109,10 @@ function saveSettings(){cfg.apiKey=document.getElementById('cfg-apikey').value.t
 function closeModal(id){document.getElementById(id).style.display='none';}
 function openNewTicket(){document.getElementById('new-ticket-modal').style.display='flex';}
 function switchTab(t,el){document.getElementById('tab-dashboard').style.display=t==='dashboard'?'':'none';document.getElementById('tab-tickets').style.display=t==='tickets'?'':'none';document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));el.classList.add('active');if(t==='dashboard')renderAll();}
+function toggleStatusFilter(s){if(activeStatusFilters.has(s))activeStatusFilters.delete(s);else activeStatusFilters.add(s);document.querySelectorAll('.status-tog').forEach(b=>b.classList.toggle('active',activeStatusFilters.has(b.dataset.s)));renderTicketList();}
 
 function goToTickets(f){
-  if(f.status!==undefined)document.getElementById('f-status').value=f.status||'';
+  if(f.status!==undefined){activeStatusFilters.clear();if(f.status)activeStatusFilters.add(f.status);document.querySelectorAll('.status-tog').forEach(b=>b.classList.toggle('active',activeStatusFilters.has(b.dataset.s)));}
   if(f.priority!==undefined)document.getElementById('f-priority').value=f.priority||'';
   if(f.engineer!==undefined)document.getElementById('f-engineer').value=f.engineer||'';
   if(f.category!==undefined)document.getElementById('f-category').value=f.category||'';
@@ -1126,12 +1136,13 @@ function clearRange(){document.getElementById('filter-from').value='';document.g
 function inRange(t){const f=document.getElementById('filter-from').value,to=document.getElementById('filter-to').value,d=(t.created||'').slice(0,10);if(f&&d<f)return false;if(to&&d>to)return false;return true;}
 function filteredTickets(){
   const s=(document.getElementById('search')||{}).value?.toLowerCase()||'';
-  const fs=(document.getElementById('f-status')||{}).value||'';const fp=(document.getElementById('f-priority')||{}).value||'';
+  const fp=(document.getElementById('f-priority')||{}).value||'';
   const fe=(document.getElementById('f-engineer')||{}).value||'';const fc=(document.getElementById('f-category')||{}).value||'';
   return tickets.filter(t=>{
     if(!inRange(t))return false;if(activeCatFilter&&t.category!==activeCatFilter)return false;
     if(activeVesselSubFilter&&(t.vesselSupportType||'General')!==activeVesselSubFilter)return false;
-    if(fs&&t.status!==fs)return false;if(fp&&t.priority!==fp)return false;if(fe&&t.assignee!==fe)return false;if(fc&&t.category!==fc)return false;
+    if(activeStatusFilters.size>0&&!activeStatusFilters.has(t.status))return false;
+    if(fp&&t.priority!==fp)return false;if(fe&&t.assignee!==fe)return false;if(fc&&t.category!==fc)return false;
     if(s&&!t.title?.toLowerCase().includes(s)&&!t.id?.toLowerCase().includes(s)&&!t.reporter?.toLowerCase().includes(s))return false;
     return true;
   });
