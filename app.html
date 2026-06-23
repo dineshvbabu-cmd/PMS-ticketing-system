@@ -154,6 +154,7 @@ textarea.form-control{resize:vertical;min-height:80px}
     <span id="last-sync-label" style="font-size:11px;color:#94a3b8;white-space:nowrap"></span>
     <button class="btn btn-secondary btn-sm" onclick="openSettings()">Settings</button>
     <button class="btn btn-secondary btn-sm" id="sync-btn" onclick="triggerSync(false)">Sync Now</button>
+    <button class="btn btn-secondary btn-sm" id="sheet-sync-btn" onclick="triggerSheetSync()" title="Sync PMS implementation tracker from Google Sheets">Sync Sheet</button>
     <button class="btn btn-primary btn-sm" onclick="openNewTicket()">+ New Ticket</button>
     <button class="btn btn-secondary btn-sm" onclick="exportCSV()">CSV</button>
     <button class="btn btn-secondary btn-sm" onclick="signOut()" style="color:#dc2626">Sign out</button>
@@ -764,17 +765,30 @@ function detectCategory(subject,body,from){
   if(/access|login|password|sign.?in|unable to log|cannot log|new user|create.*user|user.*creat|account|credential|unlock|forgot.*pass|reset.*pass|user.*setup|set up.*user/.test(t)) return 'Access Issue';
   // Vessel Support — vessel/ship names, PMS maintenance terms, spare/action requests, job orders
   if(/\bmv\b|\bmt\b|\bm\.v\b|\bm\.t\b|vessel|ship name|fleet|defect list|running hours?|certificate|class.*renewal|dry.*dock|planned maintenance|\bjob.*order\b|\border.*job\b|overdue|component|inventory|pms.*vessel|vessel.*pms|\bin pms\b|\bfor pms\b|\bspare\b|\bspares\b|spare.*part|lube.*oil|fuel.*tank|machinery|requisition/.test(t)) return 'Vessel Support';
-  // Performance
-  if(/slow|performance|speed|loading|timeout|lag|response.*time|hang|freeze|taking.*long|too long/.test(t)) return 'Performance';
+  // Performance — app response time issues; exclude maritime "speed log" by dropping bare 'speed'
+  if(/slow|performance|loading|timeout|lag|response.*time|hang|freeze|taking.*long|too long/.test(t)) return 'Performance';
   // Integration
   if(/integration|api\b|connect|interface|third.party|\berp\b|\bsap\b|module.*link|system.*connect/.test(t)) return 'Integration';
   // Data Issue — data not matching/missing/wrong
   if(/missing data|data.*missing|data.*incorrect|data.*wrong|not.*reflect|not.*show|not.*display|not.*updat|not.*appear|export|import|sync|duplicate|discrepan|mismatch|data.*transfer|wrong.*record/.test(t)) return 'Data Issue';
-  // Feature Request
-  if(/feature request|enhancement|new report|new field|would like|suggest|please add|please include|add.*option|new module|new functionality|request.*for/.test(t)) return 'Feature Request';
+  // Feature Request — new software features only; broad "please add / would like" removed (too often vessel support)
+  if(/feature request|enhancement|new module|new functionality|cbm.*implement|implement.*cbm|new.*feature|feature.*new/.test(t)) return 'Feature Request';
   // Bug Report — errors/crashes/broken functionality
   if(/bug|error|crash|fail|broken|not work|doesn.t work|incorrect|wrong|glitch|malfunction|issue.*with|problem.*with/.test(t)) return 'Bug Report';
   return 'Other';
+}
+
+function detectVesselSubCategory(subject,body){
+  const t=((subject||'')+' '+(body||'')).toLowerCase();
+  if(/\brequisition\b|\breq[-\s]?\d|purchase.*link|raise.*req|procure|adding.*to.*cart|raise.*order|po\b.*requisition/.test(t)) return 'Requisition';
+  if(/\bspare\b|\bspares\b|spare.*part|spare.*assembl|bill of material|\bbom\b|stock.*reconcil|inventory.*explorer|critical.*spare|min.*level|\brob\b|reorder/.test(t)) return 'Spare Request';
+  if(/\bsync\b|\bsynch\b|replicat|not.*replicat|office.*vessel|vessel.*office|data.*not.*match|data.*different|not.*synching|syncing.*issue|data.*not.*show/.test(t)) return 'Sync Issue';
+  if(/\bjob.*order\b|\bwork.*order\b|close.*job|complet.*job|overdue.*job|maintenance.*forecast|direct.*complet|planned.*maintenance|\bmtp\b|job.*not.*clos|unable.*clos/.test(t)) return 'Job Order';
+  if(/\bcertificat\b|class.*renewal|dry.*dock|\bsurvey\b|cert.*due|overdue.*cert/.test(t)) return 'Certificate';
+  if(/counter|running.*hours?|counter.*updat|updat.*counter|running hrs/.test(t)) return 'Counter Update';
+  if(/\bdefect\b|postpone|\bsep\b|defect.*list|raise.*defect/.test(t)) return 'Defect';
+  if(/last.*done.*date|next.*due.*date|back.*end.*data|update.*data.*backend|last done/.test(t)) return 'Data Update';
+  return 'General';
 }
 
 function detectPriority(subject,body){
@@ -860,7 +874,7 @@ async function triggerSync(isAuto){
       }else{
         const c=cls[ni++]||{};
         const _cat=c.category||_emailCat;const _finalStatus=_cat==='Report'?'Resolved':(_cat===_emailCat?autoStatus:detectStatus(email.replyCount||0,email.latestBody||'',email.bodyPreview||'',email.from?.emailAddress?.address||'',email.receivedDateTime||'',_cat,email.subject||'',_hasExternal));
-        tickets.push({id:'TKT-'+Date.now()+'-'+Math.random().toString(36).slice(2,5),title:c.title||email.subject||'No Subject',description:email.bodyPreview||'',category:_cat,priority:c.priority||'Medium',status:_finalStatus,reporter:email.from?.emailAddress?.address||'unknown',assignee:detectEngineer(email),created:email.receivedDateTime||now,updated:now,lastReplyDate:email.lastReplyDate||now,latestBody:email.latestBody||'',replyCount:email.replyCount||0,comments:[],outlookRef:email.id,webLink:email.webLink||'',hasAttachments:email.hasAttachments||false,source:'outlook',manualStatus:false,externalRecipient:_hasExternal,thread:email.thread||[]});
+        tickets.push({id:'TKT-'+Date.now()+'-'+Math.random().toString(36).slice(2,5),title:c.title||email.subject||'No Subject',description:email.bodyPreview||'',category:_cat,vesselSupportType:_cat==='Vessel Support'?detectVesselSubCategory(email.subject||'',email.bodyPreview||''):undefined,priority:c.priority||'Medium',status:_finalStatus,reporter:email.from?.emailAddress?.address||'unknown',assignee:detectEngineer(email),created:email.receivedDateTime||now,updated:now,lastReplyDate:email.lastReplyDate||now,latestBody:email.latestBody||'',replyCount:email.replyCount||0,comments:[],outlookRef:email.id,webLink:email.webLink||'',hasAttachments:email.hasAttachments||false,source:'outlook',manualStatus:false,externalRecipient:_hasExternal,thread:email.thread||[]});
         imported++;
       }
     }
@@ -914,6 +928,89 @@ async function triggerSync(isAuto){
 }
 
 function scheduleAutoSync(){if(autoSyncTimer)clearTimeout(autoSyncTimer);autoSyncTimer=setTimeout(()=>triggerSync(true),60*60*1000);}
+
+function parseCSV(text){
+  const rows=[];let row=[],cell='',inQ=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(c==='"'){if(inQ&&text[i+1]==='"'){cell+='"';i++;}else inQ=!inQ;}
+    else if(c===','&&!inQ){row.push(cell);cell='';}
+    else if((c==='\n'||(c==='\r'&&text[i+1]==='\n'))&&!inQ){if(c==='\r')i++;row.push(cell);cell='';rows.push(row);row=[];}
+    else cell+=c;
+  }
+  if(cell||row.length){row.push(cell);rows.push(row);}
+  return rows;
+}
+
+async function triggerSheetSync(){
+  const SHEET_CSV='https://docs.google.com/spreadsheets/d/1Zpjr1zo7WJGIv2ytHLfkRMMg-NIDCU2w82gMzSUyMs4/export?format=csv&gid=1617382002';
+  const btn=document.getElementById('sheet-sync-btn');if(btn)btn.disabled=true;
+  setSyncBar('fetching','Fetching PMS implementation tracker...');
+  try{
+    const resp=await fetch(SHEET_CSV,{redirect:'follow'});
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    const csv=await resp.text();
+    const rows=parseCSV(csv);
+    if(rows.length<2)throw new Error('No data rows');
+    const hdr=rows[0].map(h=>h.trim().toLowerCase());
+    const C=n=>hdr.indexOf(n);
+    const iSno=C('sno'),iDate=C('reported date'),iDesc=C('pms issues outstanding'),iPri=C('priority');
+    const iTask=C('task status'),iStat=C('status'),iType=C('issue type');
+    const iStg=C('stg target date'),iLive=C('live target date'),iMaz=C('mazik team comments'),iAsm=C('asm comments');
+    let imported=0,updated=0;const now=new Date().toISOString();
+    for(let i=1;i<rows.length;i++){
+      const r=rows[i];
+      const sno=(r[iSno]||'').trim();if(!sno)continue;
+      const desc=(r[iDesc]||'').trim();if(!desc)continue;
+      const eff=((r[iTask]||'').trim())||((r[iStat]||'').trim());
+      let tStatus;
+      if(/^completed$/i.test(eff))tStatus='Resolved';
+      else if(/cancelled|not required/i.test(eff))tStatus='Closed';
+      else if(/in progress/i.test(eff))tStatus='In Progress';
+      else if(/^pending$/i.test(eff))tStatus='In Progress';
+      else if(/hold/i.test(eff))tStatus='Pending';
+      else if(/not started/i.test(eff))tStatus='Open';
+      else if(/completed on staging/i.test(eff))tStatus='In Progress';
+      else tStatus='Open';
+      const pri=(r[iPri]||'').trim();
+      const tPri=pri==='1'?'Critical':pri==='2'?'High':pri==='3'?'Medium':'Low';
+      const itype=((r[iType]||'')).toLowerCase();
+      let cat;
+      if(/bug/.test(itype))cat='Bug Report';
+      else if(/replicat|synchroni|internet|application/.test(itype))cat='Bug Report';
+      else if(/data.*issue|data.*correct|data.*addition|data.*refin/.test(itype))cat='Data Issue';
+      else if(/new requirement|requirement|enhancement|improvement|refinement|optimiz|new task/.test(itype))cat='Feature Request';
+      else cat='Other';
+      const reportedDate=(r[iDate]||'').trim();
+      let created;try{const d=new Date(reportedDate);created=!isNaN(d)?d.toISOString():now;}catch{created=now;}
+      const targetDate=((r[iLive]||'').trim()||((r[iStg]||'').trim())||'');
+      const mazik=(r[iMaz]||'').trim();const asm=(r[iAsm]||'').trim();
+      const ticketId='SHEETS-'+sno.padStart(3,'0');
+      const titleShort='[#'+sno+'] '+desc.slice(0,65)+(desc.length>65?'...':'');
+      const ex=tickets.find(t=>t.id===ticketId);
+      if(ex){
+        let ch=false;
+        if(!ex.manualStatus&&ex.status!==tStatus){ex.status=tStatus;ch=true;}
+        if(!ex.manualPriority&&ex.priority!==tPri){ex.priority=tPri;ch=true;}
+        if(targetDate&&ex.targetDate!==targetDate){ex.targetDate=targetDate;ch=true;}
+        if(ch){ex.updated=now;updated++;}
+      }else{
+        const cmts=[];
+        if(mazik)cmts.push({author:'Mazik',text:mazik,time:created});
+        if(asm)cmts.push({author:'ASM',text:asm,time:created});
+        tickets.push({id:ticketId,title:titleShort,description:desc,category:cat,priority:tPri,status:tStatus,reporter:'d.babu@aships.co.uk',assignee:'d.babu@aships.co.uk',created:created,updated:now,lastReplyDate:now,latestBody:desc,replyCount:cmts.length,comments:cmts,outlookRef:null,webLink:'https://docs.google.com/spreadsheets/d/1Zpjr1zo7WJGIv2ytHLfkRMMg-NIDCU2w82gMzSUyMs4/edit?gid=1617382002',hasAttachments:false,source:'sheets',manualStatus:false,targetDate:targetDate,sheetIssueType:r[iType]||'',thread:[]});
+        imported++;
+      }
+    }
+    saveTickets();renderAll();
+    setSyncBar('done','Sheet: '+imported+' imported · '+updated+' updated');
+    toast('Sheet sync: '+imported+' new, '+updated+' updated','success');
+  }catch(e){
+    console.error('Sheet sync failed:',e);
+    setSyncBar('error','Sheet sync failed: '+e.message);
+    toast('Sheet sync failed: '+e.message,'error');
+  }finally{if(btn)btn.disabled=false;}
+}
 function checkAutoSync(){
   const last=localStorage.getItem(SYNC_KEY);
   const lastDate=last?new Date(last):null;
@@ -952,6 +1049,7 @@ function reClassifyTickets(){
     if(!t.manualCategory){
       const nc=detectCategory(t.title,t.description,t.reporter||'');
       if(nc!==t.category&&(nc!=='Other'||t.category==='Other')){t.category=nc;changed=true;}
+      if(t.category==='Vessel Support'){const vst=detectVesselSubCategory(t.title,t.description);if(t.vesselSupportType!==vst){t.vesselSupportType=vst;changed=true;}}
     }
     // Priority
     if(!t.manualPriority&&t.priority==='Medium'){
@@ -1090,10 +1188,12 @@ function renderTicketList(){
         <div class="ticket-meta">
           <span style="font-size:11px;font-family:monospace;color:#94a3b8">${t.id}</span>
           <span style="background:${m.bg};color:${m.col};font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px">${m.icon} ${t.category}</span>
+          ${t.category==='Vessel Support'&&t.vesselSupportType&&t.vesselSupportType!=='General'?`<span style="font-size:10px;background:#f1f5f9;color:#475569;padding:1px 6px;border-radius:99px;border:1px solid #e2e8f0">${t.vesselSupportType}</span>`:''}
           <span class="badge ${STATUS_BADGE[t.status]||'badge-gray'}">${t.status}</span>
           <span class="badge ${PRI_BADGE[t.priority]||'badge-gray'}">${t.priority}</span>
           ${t.source==='outlook'?'<span style="font-size:11px;color:#3b82f6">email</span>':''}
-          ${t.replyCount>0?`<span style="font-size:10px;color:#94a3b8">${t.replyCount} replies</span>`:''}
+          ${t.source==='sheets'?'<span style="font-size:11px;color:#8b5cf6">sheet</span>':''}
+          ${t.replyCount>0?`<span style="font-size:10px;color:#94a3b8">${t.replyCount} ${t.source==='sheets'?'comment'+(t.replyCount!==1?'s':''):'repl'+(t.replyCount!==1?'ies':'y')}</span>`:''}
         </div>
         <div class="ticket-title">${escHtml(t.title)}</div>
         <div class="ticket-sub">From: ${escHtml(t.reporter||'')} &bull; <span class="${eng.cls}" style="vertical-align:middle">${eng.initials}</span> ${eng.name} &bull; ${t.created?new Date(t.created).toLocaleDateString():''}</div>
@@ -1163,7 +1263,15 @@ function applyBulkUpdate(){
 function openTicket(id){
   const t=tickets.find(x=>x.id===id);if(!t)return;activeTicketId=id;
   const m=CAT_META[t.category]||CAT_META['Other'];
-  document.getElementById('tm-meta').innerHTML=`<span style="font-size:11px;font-family:monospace;color:#94a3b8">${t.id}</span><span style="background:${m.bg};color:${m.col};font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px">${m.icon} ${t.category}</span>${t.source==='outlook'?'<span class="badge badge-blue">From Outlook</span>':''}`;
+  {const mb=[];
+  mb.push('<span style="font-size:11px;font-family:monospace;color:#94a3b8">'+t.id+'</span>');
+  mb.push('<span style="background:'+m.bg+';color:'+m.col+';font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px">'+m.icon+' '+t.category+'</span>');
+  if(t.category==='Vessel Support'&&t.vesselSupportType&&t.vesselSupportType!=='General')mb.push('<span style="font-size:11px;background:#f1f5f9;color:#475569;padding:2px 7px;border-radius:99px;border:1px solid #e2e8f0">'+t.vesselSupportType+'</span>');
+  if(t.source==='outlook')mb.push('<span class="badge badge-blue">From Outlook</span>');
+  if(t.source==='sheets')mb.push('<span style="background:#ede9fe;color:#6d28d9;font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px">PMS Tracker</span>');
+  if(t.sheetIssueType)mb.push('<span style="font-size:10px;color:#94a3b8">'+t.sheetIssueType+'</span>');
+  if(t.targetDate)mb.push('<span style="font-size:11px;background:#fef9c3;color:#78350f;padding:2px 7px;border-radius:99px">Target: '+t.targetDate+'</span>');
+  document.getElementById('tm-meta').innerHTML=mb.join('');}
   document.getElementById('tm-title').textContent=t.title;
   document.getElementById('tm-reporter').textContent=t.reporter||'';
   document.getElementById('tm-assignee').value=t.assignee||ENGINEERS[0].email;
@@ -1172,7 +1280,7 @@ function openTicket(id){
   document.getElementById('tm-created').textContent=t.created?new Date(t.created).toLocaleString():'';
   document.getElementById('tm-replies').textContent=(t.replyCount||0)+' replies';
   document.getElementById('tm-desc').textContent=t.description||'No description.';
-  const ol=document.getElementById('tm-outlook-link');if(t.webLink){ol.href=t.webLink;ol.style.display='';}else ol.style.display='none';
+  const ol=document.getElementById('tm-outlook-link');if(t.webLink){ol.href=t.webLink;ol.textContent=t.source==='sheets'?'View Sheet':'Outlook';ol.style.display='';}else ol.style.display='none';
   document.getElementById('tm-statuses').innerHTML=['Open','In Progress','Pending','Resolved','Closed'].map(s=>`<span class="status-pill${t.status===s?' active':''}" onclick="setStatus('${s}')">${s}</span>`).join('');
   renderComments(t);
   renderThread(t);
