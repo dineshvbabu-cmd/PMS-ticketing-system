@@ -683,10 +683,13 @@ function detectStatus(replyCount, latestBody, description, reporter, created){
   return 'In Progress';
 }
 
-function detectCategory(subject,body){
+function detectCategory(subject,body,from){
   const t=((subject||'')+' '+(body||'')).toLowerCase();
-  // Report — automated/scheduled/overdue reports (checked first — always Resolved)
-  if(/overdue.*report|report.*overdue|weekly.*report|daily.*report|monthly.*report|fortnightly.*report|consolidated.*report|report.*consolid|sync.*report|report.*sync|synchroni[sz].*report|pms.*sync|scheduled.*report|automated.*report|system.*generat|defect.*overdue|overdue.*job.*report|cbm.*report|report.*cbm|weekly.*overdue|overdue.*weekly|daily.*overdue/.test(t)) return 'Report';
+  const sender=(from||'').toLowerCase();
+  // Report — known automated PMS system senders (domain-based)
+  if(/amosconnect\.com|maziksolutions\.com|officepms@|@pmslink\.|autom.*pms|pms.*autom/.test(sender)) return 'Report';
+  // Report — subject/body keywords for automated/scheduled reports
+  if(/overdue.*report|report.*overdue|weekly.*report|daily.*report|monthly.*report|fortnightly.*report|consolidated.*report|report.*consolid|sync.*report|report.*sync|synchroni[sz].*report|synchroni[sz].*summary|pms.*sync|scheduled.*report|automated.*report|system.*generat|defect.*overdue|overdue.*job.*report|cbm.*report|report.*cbm|weekly.*overdue|overdue.*weekly|daily.*overdue|maintenance.*forecast|forecast.*maintenance|pending.*vessel|vessel.*pending|pms.*screenshot|screenshot.*pms|daily.*vessel.*sync|vessel.*sync.*summary|sync.*summary|not yet received.*vessel|vessel.*status.*update|maintenance.*status|jobs.*due.*report|critical.*jobs.*report/.test(t)) return 'Report';
   // Access Issue — login/password/user account problems (check before vessel to avoid false positives)
   if(/access|login|password|sign.?in|unable to log|cannot log|new user|create.*user|user.*creat|account|credential|unlock|forgot.*pass|reset.*pass|user.*setup|set up.*user/.test(t)) return 'Access Issue';
   // Vessel Support — vessel/ship names (MV/MT/MS prefix) or PMS maintenance terms
@@ -745,7 +748,7 @@ async function triggerSync(isAuto){
     let imported=0,updated=0;
     const newEmails=emails.filter(e=>!byRef[e.id]);
     // Keyword-based defaults (works without API key)
-    let cls=newEmails.map(e=>({priority:detectPriority(e.subject,e.bodyPreview),category:detectCategory(e.subject,e.bodyPreview),title:(e.subject||'No Subject').slice(0,80)}));
+    let cls=newEmails.map(e=>({priority:detectPriority(e.subject,e.bodyPreview),category:detectCategory(e.subject,e.bodyPreview,e.from?.emailAddress?.address||''),title:(e.subject||'No Subject').slice(0,80)}));
     if(newEmails.length&&(cfg.apiKey||ANTHROPIC_KEY_SERVER)){
       try{
         const prompt=newEmails.map((e,i)=>`[${i}] Subject:${e.subject}|Body:${e.bodyPreview.slice(0,100)}`).join('|||');
@@ -757,7 +760,7 @@ async function triggerSync(isAuto){
     let reclassified=0;
     tickets.forEach(t=>{
       if(t.source==='outlook'&&!t.manualCategory){
-        if(t.category==='Other'){const nc=detectCategory(t.title,t.description);if(nc!=='Other'){t.category=nc;reclassified++;}}
+        if(t.category==='Other'){const nc=detectCategory(t.title,t.description,t.reporter||'');if(nc!=='Other'){t.category=nc;reclassified++;}}
         if(t.priority==='Medium'){const np=detectPriority(t.title,t.description);if(np!=='Medium')t.priority=np;}
       }
     });
@@ -822,7 +825,7 @@ function reClassifyTickets(){
     // Category — re-classify Other; also try to upgrade non-Other tickets to Report if they match
     if(!t.manualCategory){
       if(t.category==='Other'||t.category!=='Report'){
-        const nc=detectCategory(t.title,t.description);
+        const nc=detectCategory(t.title,t.description,t.reporter||'');
         if(nc!==t.category&&(t.category==='Other'||nc==='Report')){t.category=nc;changed=true;}
       }
     }
