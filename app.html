@@ -672,8 +672,14 @@ function detectStatus(replyCount, latestBody, description, reporter, created){
   // Vessel/person acknowledged after resolution → Closed
   if(replyCount>=2&&/\b(thank you|thanks|noted|confirmed|acknowledged|great|understood|ok noted|appreciate|received|duly noted)\b/.test(last)) return 'Closed';
 
+  // Engineer signature in the reply body → engineer replied → Resolved
+  // (checks last 500 chars — where signatures appear)
+  const tail=all.slice(-500);
+  const engNames=['boppudi','vineeth','desingh','arvindh','borse','chetan','d.babu','dinesh babu'];
+  if(replyCount>=1&&engNames.some(n=>tail.includes(n))) return 'Resolved';
+
   // Resolution language anywhere in thread or description
-  const resRe=/resolv|complet|been fix|has been (done|sorted|updated|attend|address|clos)|sorted|rectif|no further action|please let us know if|if you have any further|issue.*address|task.*done|able to (raise|proceed|submit)|you may proceed|please proceed|can now proceed|vessel.*confirm|inform.*vessel|requisition.*rais|has been inform|action.*taken|action.*complet|been process|updated.*vessel|vessel.*updated|\bdone\b|\bok\b|\bnoted\b|\bunderstood\b|will do|checked|verified|confirmed|updated in|corrected|fixed in|applied|closed in|actioned|forwarded to vessel|vessel.*informed|informed.*vessel/;
+  const resRe=/resolv|complet|been fix|has been (done|sorted|updated|attend|address|clos)|sorted|rectif|no further action|please let us know if|if you have any further|issue.*address|task.*done|able to (raise|proceed|submit)|you may proceed|please proceed|can now proceed|vessel.*confirm|inform.*vessel|requisition.*rais|has been inform|action.*taken|action.*complet|been process|updated.*vessel|vessel.*updated|\bdone\b|\bok\b|\bnoted\b|\bunderstood\b|will do|checked|verified|confirmed|updated in|corrected|fixed in|applied|closed in|actioned|forwarded to vessel|vessel.*informed|informed.*vessel|included in pms|added.*pms|pms.*added|added to (the )?system|has been added|have been added|included in (the )?system|added to (the )?module|updated (the )?pms|pms.*updated|added under|included under|for your reference.*screenshot|screenshot.*for your reference|please find.*screenshot|screenshot.*attached|added.*ship store|ship store.*added/;
   if(resRe.test(all)) return 'Resolved';
 
   // Age heuristic: team resolves issues on day-to-day basis (per manager confirmation)
