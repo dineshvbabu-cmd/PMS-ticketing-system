@@ -1158,9 +1158,28 @@ function renderStats(ft){
 }
 function renderWorkload(ft){
   document.getElementById('workload-grid').innerHTML=ENGINEERS.map(eng=>{
-    const open=ft.filter(t=>t.assignee===eng.email&&!['Resolved','Closed'].includes(t.status)).length;
-    const total=ft.filter(t=>t.assignee===eng.email).length;const pct=total>0?Math.round(open/total*100):0;
-    return`<div class="card" style="cursor:pointer;padding:12px" onclick="goToTickets({engineer:'${eng.email}'})" title="View all tickets for ${eng.name}"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="${eng.cls}">${eng.initials}</span><span style="font-size:13px;font-weight:600">${eng.name}</span></div><div style="font-size:24px;font-weight:800">${open} <span style="font-size:12px;font-weight:400;color:#94a3b8">open</span></div><div style="font-size:11px;color:#94a3b8">${total} total</div><div class="workload-bar"><div class="workload-fill" style="width:${pct}%"></div></div></div>`;
+    const openCount=ft.filter(t=>t.assignee===eng.email&&t.status==='Open').length;
+    const inprogCount=ft.filter(t=>t.assignee===eng.email&&t.status==='In Progress').length;
+    const total=ft.filter(t=>t.assignee===eng.email).length;
+    const active=openCount+inprogCount;const pct=total>0?Math.round(active/total*100):0;
+    return`<div class="card" style="padding:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span class="${eng.cls}">${eng.initials}</span>
+        <span style="font-size:13px;font-weight:600">${eng.name}</span>
+      </div>
+      <div style="display:flex;gap:18px;margin-bottom:6px">
+        <div style="cursor:pointer" onclick="goToTickets({engineer:'${eng.email}',status:'Open'})" title="View Open tickets for ${eng.name}">
+          <span style="font-size:22px;font-weight:800;color:var(--blue)">${openCount}</span>
+          <span style="font-size:11px;color:#64748b"> open</span>
+        </div>
+        <div style="cursor:pointer" onclick="goToTickets({engineer:'${eng.email}',status:'In Progress'})" title="View In Progress tickets for ${eng.name}">
+          <span style="font-size:22px;font-weight:800;color:var(--amber)">${inprogCount}</span>
+          <span style="font-size:11px;color:#64748b"> in progress</span>
+        </div>
+      </div>
+      <div style="font-size:11px;color:#94a3b8;cursor:pointer;margin-bottom:4px" onclick="goToTickets({engineer:'${eng.email}'})" title="View all tickets for ${eng.name}">${total} total</div>
+      <div class="workload-bar"><div class="workload-fill" style="width:${pct}%"></div></div>
+    </div>`;
   }).join('');
 }
 function renderCatTiles(ft){
