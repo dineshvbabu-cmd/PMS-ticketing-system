@@ -316,6 +316,15 @@ textarea.form-control{resize:vertical;min-height:80px}
 </div>
 
 <script>
+// OAuth popup self-close: when Microsoft redirects the popup back to our URL,
+// relay the token to the parent window and close immediately.
+(function(){
+  if(window.opener && location.hash && location.hash.includes('access_token=')){
+    try{ window.opener.postMessage({pms_oauth: location.hash.slice(1)}, location.origin); }catch(e){}
+    window.close();
+  }
+})();
+
 const _CFG      = window.__PMS_CONFIG || {};
 const TENANT_ID = _CFG.TENANT_ID  || localStorage.getItem('pms_tenant_id') || '1cc66e95-37e4-4d07-ac81-5d31f8ad941b';
 const CLIENT_ID_SERVER = _CFG.CLIENT_ID || '';
@@ -383,16 +392,35 @@ async function loginWithMicrosoft(){
   const popup=window.open(authUrl,'ms-login','width=520,height=680,left=300,top=80');
   if(!popup){setLoginStatus('Popup blocked. Allow popups and try again.');return;}
   setLoginStatus('Sign in to Microsoft in the popup window...');
-  const pollTimer=setInterval(()=>{
+
+  // Primary: receive token via postMessage from popup (works when redirect URI is a real page)
+  let _poll=null, _msg=null;
+  const _done=(hash)=>{
+    if(_poll){clearInterval(_poll);_poll=null;}
+    if(_msg){window.removeEventListener('message',_msg);_msg=null;}
+    try{if(popup&&!popup.closed)popup.close();}catch(e){}
+    handleImplicitToken(hash);
+  };
+  _msg=(ev)=>{
+    if(ev.origin!==location.origin||!ev.data||!ev.data.pms_oauth)return;
+    _done(ev.data.pms_oauth);
+  };
+  window.addEventListener('message',_msg);
+
+  // Fallback: poll popup URL (catches http://localhost redirect used in local dev)
+  _poll=setInterval(()=>{
     try{
       const pu=popup.location.href;
       if(pu&&(pu.includes('access_token=')||pu.includes('error='))){
-        clearInterval(pollTimer);popup.close();
         const hash=pu.includes('#')?pu.split('#')[1]:(pu.split('?')[1]||'');
-        handleImplicitToken(hash);
+        _done(hash); return;
       }
     }catch(e){}
-    if(popup.closed){clearInterval(pollTimer);setLoginStatus('Popup closed. Try again.');}
+    if(popup.closed){
+      if(_poll){clearInterval(_poll);_poll=null;}
+      if(_msg){window.removeEventListener('message',_msg);_msg=null;}
+      setLoginStatus('Popup closed. Try again.');
+    }
   },300);
 }
 
