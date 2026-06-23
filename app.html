@@ -535,22 +535,55 @@ async function fetchGroupEmails(groupId,afterDate){
 }
 
 function detectEngineer(email){
-  const recipients=[...(email.toRecipients||[]),...(email.ccRecipients||[])].map(r=>(r.emailAddress?.address||'').toLowerCase());
-  for(const eng of ENGINEERS){if(recipients.includes(eng.email.toLowerCase()))return eng.email;}
-  const hints=[{eng:ENGINEERS[0],h:['boppudi','vineeth','v.boppudi']},{eng:ENGINEERS[1],h:['desingh','arvindh','a.desingh']},{eng:ENGINEERS[2],h:['borse','c.borse']}];
-  const hay=(email.subject+' '+email.bodyPreview+' '+email.latestBody).toLowerCase();
+  // Primary: exact match in TO field
+  const toList=(email.toRecipients||[]).map(r=>(r.emailAddress?.address||'').toLowerCase());
+  for(const eng of ENGINEERS){if(toList.includes(eng.email.toLowerCase()))return eng.email;}
+  // Secondary: exact match in CC field
+  const ccList=(email.ccRecipients||[]).map(r=>(r.emailAddress?.address||'').toLowerCase());
+  for(const eng of ENGINEERS){if(ccList.includes(eng.email.toLowerCase()))return eng.email;}
+  // Fallback: name hint in subject/body
+  const hints=[
+    {eng:ENGINEERS[0],h:['boppudi','vineeth','v.boppudi']},
+    {eng:ENGINEERS[1],h:['desingh','arvindh','arvind','a.desingh']},
+    {eng:ENGINEERS[2],h:['borse','c.borse']},
+    {eng:ENGINEERS[3],h:['babu','dinesh','d.babu']},
+  ];
+  const hay=((email.subject||'')+' '+(email.bodyPreview||'')+' '+(email.latestBody||'')).toLowerCase();
   for(const {eng,h} of hints)if(h.some(x=>hay.includes(x)))return eng.email;
-  return ENGINEERS[0].email;
+  return ENGINEERS[0].email; // default: Vineeth
 }
 
+// Status lifecycle:
+// Open       → vessel/person raised issue, no engineer reply yet
+// In Progress → engineer has acknowledged and is working on it
+// Resolved   → engineer confirmed the task is done
+// Closed     → vessel/person acknowledged the resolution
 function detectStatus(replyCount,latestBody){
   const b=(latestBody||'').toLowerCase();
-  if(/resolv|complet|done|closed|fixed|no further|sorted|rectif/.test(b))return 'Resolved';
-  if(/working on|in progress|investigating|will update|looking into|checking/.test(b))return 'In Progress';
-  if(replyCount===0)return 'Open';
-  if(replyCount>=1&&replyCount<=2)return 'In Progress';
-  if(replyCount>5)return 'Resolved';
+  if(replyCount===0) return 'Open';
+  if(replyCount>=2&&/\b(thank you|thanks|noted|confirmed|acknowledged|great|understood|ok noted|appreciate|received|duly noted)\b/.test(b)) return 'Closed';
+  if(/\b(resolv|complet|been fix|has been|sorted|rectif|no further|please let us know|if you have any further|issue.*address|been attend|been clos|task.*done)\b/.test(b)) return 'Resolved';
   return 'In Progress';
+}
+
+function detectCategory(subject,body){
+  const t=((subject||'')+' '+(body||'')).toLowerCase();
+  if(/\b(bug|error|crash|fail|broken|not work|doesn.t work|incorrect|wrong result|glitch|malfunction)\b/.test(t)) return 'Bug Report';
+  if(/\b(vessel|ship|fleet|voyage|port|master|officer|imo|ais|maintenance record|defect list|class|survey|running hour|certificate|inventory|job order|pms module)\b/.test(t)) return 'Vessel Support';
+  if(/\b(feature request|enhancement|new report|new field|wish|would like|suggest|add.*option|new module|new functionality)\b/.test(t)) return 'Feature Request';
+  if(/\b(access|login|password|permission|account|credential|cannot log|unable to log|sign in|unlock|create.*user|reset.*password)\b/.test(t)) return 'Access Issue';
+  if(/\b(missing data|wrong data|data.*missing|data.*incorrect|export|import|sync.*data|data.*transfer|duplicate)\b/.test(t)) return 'Data Issue';
+  if(/\b(integration|api|connect|interface|third.party|erp|sap|module.*connect)\b/.test(t)) return 'Integration';
+  if(/\b(slow|performance|speed|loading|timeout|lag|response.*time|hang|freeze)\b/.test(t)) return 'Performance';
+  return 'Other';
+}
+
+function detectPriority(subject,body){
+  const t=((subject||'')+' '+(body||'')).toLowerCase();
+  if(/\b(urgent|critical|emergency|asap|immediately|vessel.*cannot|cannot.*operate|vessel.*stop|ship.*stop|high priority|safety)\b/.test(t)) return 'Critical';
+  if(/\b(important|high|priority|cannot.*proceed|blocking|urgent.*attention|escalat)\b/.test(t)) return 'High';
+  if(/\b(minor|low priority|when possible|no rush|at your convenience)\b/.test(t)) return 'Low';
+  return 'Medium';
 }
 
 async function triggerSync(isAuto){
@@ -585,7 +618,8 @@ async function triggerSync(isAuto){
     const byRef={};tickets.forEach(t=>{if(t.outlookRef)byRef[t.outlookRef]=t;});
     let imported=0,updated=0;
     const newEmails=emails.filter(e=>!byRef[e.id]);
-    let cls=newEmails.map(()=>({priority:'Medium',category:'Other',title:''}));
+    // Keyword-based defaults (works without API key)
+    let cls=newEmails.map(e=>({priority:detectPriority(e.subject,e.bodyPreview),category:detectCategory(e.subject,e.bodyPreview),title:(e.subject||'No Subject').slice(0,80)}));
     if(newEmails.length&&(cfg.apiKey||ANTHROPIC_KEY_SERVER)){
       try{
         const prompt=newEmails.map((e,i)=>`[${i}] Subject:${e.subject}|Body:${e.bodyPreview.slice(0,100)}`).join('|||');
@@ -593,6 +627,15 @@ async function triggerSync(isAuto){
         const arr=extractArr(res);if(arr&&arr.length===newEmails.length)cls=arr;
       }catch{}
     }
+    // Re-classify existing tickets that ended up as "Other" due to missing API key
+    let reclassified=0;
+    tickets.forEach(t=>{
+      if(t.source==='outlook'&&!t.manualCategory){
+        if(t.category==='Other'){const nc=detectCategory(t.title,t.description);if(nc!=='Other'){t.category=nc;reclassified++;}}
+        if(t.priority==='Medium'){const np=detectPriority(t.title,t.description);if(np!=='Medium')t.priority=np;}
+      }
+    });
+    if(reclassified>0)console.log(`Re-classified ${reclassified} tickets from Other`);
     let ni=0;
     for(const email of emails){
       const ex=byRef[email.id];const now=new Date().toISOString();const autoStatus=detectStatus(email.replyCount||0,email.latestBody||'');
