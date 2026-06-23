@@ -40,7 +40,7 @@ main{max-width:1200px;margin:0 auto;padding:16px}
 .ticket-title{font-weight:600;color:#0f172a;font-size:13px;margin-bottom:4px}
 .ticket-sub{font-size:11px;color:#94a3b8}
 .avatar{width:22px;height:22px;border-radius:50%;background:var(--blue);color:#fff;font-size:10px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
-.avatar-AD{background:#7c3aed}.avatar-CB{background:#0891b2}
+.avatar-AD{background:#7c3aed}.avatar-CB{background:#0891b2}.avatar-DB{background:#059669}
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:200;padding:16px}
 .modal{background:#fff;border-radius:20px;width:100%;max-width:640px;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.2)}
 .modal-header{padding:18px 20px;border-bottom:1px solid #f1f5f9;display:flex;align-items:flex-start;justify-content:space-between}
@@ -204,7 +204,7 @@ textarea.form-control{resize:vertical;min-height:80px}
       <input type="text" id="search" placeholder="Search tickets..." oninput="renderTicketList()">
       <select id="f-status" onchange="renderTicketList()"><option value="">All Status</option><option>Open</option><option>In Progress</option><option>Pending</option><option>Resolved</option><option>Closed</option></select>
       <select id="f-priority" onchange="renderTicketList()"><option value="">All Priority</option><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select>
-      <select id="f-engineer" onchange="renderTicketList()"><option value="">All Engineers</option><option value="v.boppudi@aships.co.uk">V. Boppudi</option><option value="a.desingh@aships.co.uk">A. Desingh</option><option value="c.borse@aships.co.uk">C. Borse</option></select>
+      <select id="f-engineer" onchange="renderTicketList()"><option value="">All Engineers</option><option value="v.boppudi@aships.co.uk">V. Boppudi</option><option value="a.desingh@aships.co.uk">A. Desingh</option><option value="c.borse@aships.co.uk">C. Borse</option><option value="d.babu@aships.co.uk">D. Babu</option></select>
       <select id="f-category" onchange="renderTicketList()"><option value="">All Categories</option><option>Bug Report</option><option>Vessel Support</option><option>Feature Request</option><option>Access Issue</option><option>Data Issue</option><option>Integration</option><option>Performance</option><option>Other</option></select>
       <span id="ticket-count" style="font-size:12px;color:#94a3b8;margin-left:auto"></span>
     </div>
@@ -264,7 +264,7 @@ textarea.form-control{resize:vertical;min-height:80px}
       <div style="margin-bottom:14px"><div class="section-title">Status</div><div id="tm-statuses"></div></div>
       <div class="grid-2" style="margin-bottom:14px;gap:10px">
         <div><div class="section-title">Reporter</div><div id="tm-reporter" style="font-size:13px"></div></div>
-        <div><div class="section-title">Assignee</div><select id="tm-assignee" class="form-control" style="font-size:13px" onchange="updateTicketField('assignee',this.value)"><option value="v.boppudi@aships.co.uk">V. Boppudi</option><option value="a.desingh@aships.co.uk">A. Desingh</option><option value="c.borse@aships.co.uk">C. Borse</option></select></div>
+        <div><div class="section-title">Assignee</div><select id="tm-assignee" class="form-control" style="font-size:13px" onchange="updateTicketField('assignee',this.value)"><option value="v.boppudi@aships.co.uk">V. Boppudi</option><option value="a.desingh@aships.co.uk">A. Desingh</option><option value="c.borse@aships.co.uk">C. Borse</option><option value="d.babu@aships.co.uk">D. Babu</option></select></div>
         <div><div class="section-title">Priority</div><select id="tm-priority" class="form-control" style="font-size:13px" onchange="updateTicketField('priority',this.value)"><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select></div>
         <div><div class="section-title">Category</div><select id="tm-category" class="form-control" style="font-size:13px" onchange="updateTicketField('category',this.value)"><option>Bug Report</option><option>Vessel Support</option><option>Feature Request</option><option>Access Issue</option><option>Data Issue</option><option>Integration</option><option>Performance</option><option>Other</option></select></div>
         <div><div class="section-title">Created</div><div id="tm-created" style="font-size:13px"></div></div>
@@ -305,7 +305,7 @@ textarea.form-control{resize:vertical;min-height:80px}
         <div class="form-group"><label class="form-label">Category</label><select class="form-control" id="nt-category"><option>Bug Report</option><option>Vessel Support</option><option>Feature Request</option><option>Access Issue</option><option>Data Issue</option><option>Integration</option><option>Performance</option><option>Other</option></select></div>
         <div class="form-group"><label class="form-label">Priority</label><select class="form-control" id="nt-priority"><option>Low</option><option selected>Medium</option><option>High</option><option>Critical</option></select></div>
         <div class="form-group"><label class="form-label">Reporter *</label><input type="email" class="form-control" id="nt-reporter" placeholder="user@company.com"></div>
-        <div class="form-group"><label class="form-label">Assignee</label><select class="form-control" id="nt-assignee"><option value="v.boppudi@aships.co.uk">V. Boppudi</option><option value="a.desingh@aships.co.uk">A. Desingh</option><option value="c.borse@aships.co.uk">C. Borse</option></select></div>
+        <div class="form-group"><label class="form-label">Assignee</label><select class="form-control" id="nt-assignee"><option value="v.boppudi@aships.co.uk">V. Boppudi</option><option value="a.desingh@aships.co.uk">A. Desingh</option><option value="c.borse@aships.co.uk">C. Borse</option><option value="d.babu@aships.co.uk">D. Babu</option></select></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -346,6 +346,7 @@ const ENGINEERS  = [
   {email:'v.boppudi@aships.co.uk', name:'V. Boppudi', initials:'VB', cls:'avatar'},
   {email:'a.desingh@aships.co.uk', name:'A. Desingh', initials:'AD', cls:'avatar avatar-AD'},
   {email:'c.borse@aships.co.uk',   name:'C. Borse',   initials:'CB', cls:'avatar avatar-CB'},
+  {email:'d.babu@aships.co.uk',    name:'D. Babu',    initials:'DB', cls:'avatar avatar-DB'},
 ];
 const CAT_META = {
   'Bug Report':      {icon:'B',bg:'#fef2f2',col:'#b91c1c'},
