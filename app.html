@@ -1174,7 +1174,7 @@ function filteredTickets(){
     return true;
   });
 }
-function renderAll(){const ft=filteredTickets();renderStats(ft);renderWorkload(ft);renderCatTiles(ft);renderCharts(ft);renderEngBreakdown(ft);renderTicketList();}
+function renderAll(){const ft=filteredTickets();renderStats(ft);renderWorkload();renderCatTiles(ft);renderCharts(ft);renderEngBreakdown(ft);renderTicketList();}
 
 function renderStats(ft){
   document.getElementById('s-open').textContent=ft.filter(t=>t.status==='Open').length;
@@ -1183,11 +1183,13 @@ function renderStats(ft){
   document.getElementById('s-closed').textContent=ft.filter(t=>t.status==='Closed').length;
   document.getElementById('s-total').textContent=ft.length;
 }
-function renderWorkload(ft){
+function renderWorkload(){
+  // Use date-range-only view so counts stay accurate regardless of active status/engineer/category filters
+  const wft=tickets.filter(t=>inRange(t));
   document.getElementById('workload-grid').innerHTML=ENGINEERS.map(eng=>{
-    const openCount=ft.filter(t=>t.assignee===eng.email&&t.status==='Open').length;
-    const inprogCount=ft.filter(t=>t.assignee===eng.email&&t.status==='In Progress').length;
-    const total=ft.filter(t=>t.assignee===eng.email).length;
+    const openCount=wft.filter(t=>t.assignee===eng.email&&t.status==='Open').length;
+    const inprogCount=wft.filter(t=>t.assignee===eng.email&&t.status==='In Progress').length;
+    const total=wft.filter(t=>t.assignee===eng.email).length;
     const active=openCount+inprogCount;const pct=total>0?Math.round(active/total*100):0;
     return`<div class="card" style="padding:12px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
