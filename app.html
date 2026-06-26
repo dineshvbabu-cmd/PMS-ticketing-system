@@ -495,7 +495,7 @@ let tickets=[], cfg={apiKey:''};
 let auth={accessToken:'',refreshToken:'',expiresAt:0,name:'',upn:''};
 let activeTicketId=null, activeCatFilter=null, activeVesselSubFilter=null, selectedIds=new Set();
 let activeStatusFilters=new Set();
-let chartStatus=null, chartTime=null, chartVesselSub=null, autoSyncTimer=null, refreshTimer=null;
+let chartStatus=null, chartTime=null, chartVesselSub=null, autoSyncTimer=null, refreshTimer=null, dbPollTimer=null;
 
 const save   = (k,v)=>localStorage.setItem(k,JSON.stringify(v));
 const load   = (k,d)=>{try{return JSON.parse(localStorage.getItem(k)||'null')||d;}catch{return d;}};
@@ -614,7 +614,7 @@ function saveClientIdAndLogin(){
 
 function signOut(){
   auth={accessToken:'',refreshToken:'',expiresAt:0,name:'',upn:''};saveAuth();
-  if(refreshTimer)clearTimeout(refreshTimer);if(autoSyncTimer)clearTimeout(autoSyncTimer);
+  if(refreshTimer)clearTimeout(refreshTimer);if(autoSyncTimer)clearTimeout(autoSyncTimer);if(dbPollTimer)clearInterval(dbPollTimer);
   document.getElementById('app').style.display='none';
   document.getElementById('login-screen').style.display='flex';
   setLoginStatus('Signed out.');
@@ -1098,10 +1098,18 @@ async function showApp(){
   document.getElementById('app').style.display='';
   document.getElementById('user-badge').textContent='User: '+(auth.name||auth.upn||'User');
   document.getElementById('cfg-apikey').value=cfg.apiKey||'';
-  updateTokenUsageDisplay();setQuickRange(30);
+  updateTokenUsageDisplay();clearRange(); // All time — same baseline for every user
   await loadTicketsFromServer();
   reClassifyTickets();
-  renderAll();scheduleRefresh();checkAutoSync();
+  renderAll();scheduleRefresh();checkAutoSync();startDbPoll();
+}
+function startDbPoll(){
+  if(dbPollTimer)clearInterval(dbPollTimer);
+  // Poll the shared DB every 2 minutes so manual changes by any team member propagate without needing a page reload
+  dbPollTimer=setInterval(async()=>{
+    if(document.hidden||!auth.accessToken)return;
+    await loadTicketsFromServer();reClassifyTickets();renderAll();
+  },2*60*1000);
 }
 document.addEventListener('visibilitychange',()=>{
   if(!document.hidden&&auth.accessToken) loadTicketsFromServer().then(()=>{reClassifyTickets();renderAll();});
