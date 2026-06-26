@@ -925,6 +925,9 @@ function normalizeSubj(s){return(s||'').replace(/^(re|fw|fwd):\s*/gi,'').trim().
 async function triggerSync(isAuto){
   if(!auth.accessToken){if(!isAuto)toast('Please sign in first','error');return;}
   const btn=document.getElementById('sync-btn');btn.disabled=true;
+  // Always start from the latest DB state so stale in-memory data never
+  // gets baked into a sync and then overwritten back to DB.
+  await loadTicketsFromServer();
   // Incremental: first sync = 1 year; subsequent = since last sync (minus 1-day buffer)
   const _lastSync=localStorage.getItem(SYNC_KEY);
   const _isFirst=!_lastSync||tickets.length===0;
@@ -1197,19 +1200,20 @@ async function showApp(){
 }
 function startDbPoll(){
   if(dbPollTimer)clearInterval(dbPollTimer);
-  // Poll every 30 seconds — DB reads need no auth token, so run even if Graph
-  // session has expired or the tab is in the background. This ensures all
-  // engineers see status/count changes within 30 seconds without a manual refresh.
+  // Poll every 30 seconds. DB reads need no auth token.
+  // NOTE: Do NOT run reClassifyTickets() here — if two users both reclassify
+  // every 30 s and disagree on a status, they ping-pong and overwrite each
+  // other indefinitely. Classification only happens on page load and after sync.
   dbPollTimer=setInterval(async()=>{
-    await loadTicketsFromServer();reClassifyTickets();renderAll();
+    await loadTicketsFromServer();renderAll();
   },30*1000);
 }
 // Fetch immediately when user switches back to this tab or focuses the window
 document.addEventListener('visibilitychange',()=>{
-  if(!document.hidden) loadTicketsFromServer().then(()=>{reClassifyTickets();renderAll();});
+  if(!document.hidden) loadTicketsFromServer().then(()=>renderAll());
 });
 window.addEventListener('focus',()=>{
-  loadTicketsFromServer().then(()=>{reClassifyTickets();renderAll();});
+  loadTicketsFromServer().then(()=>renderAll());
 });
 
 // Re-apply all auto-detections to every ticket that hasn't been manually overridden.
