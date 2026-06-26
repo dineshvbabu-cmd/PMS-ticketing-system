@@ -512,6 +512,71 @@ async function loadTicketsFromServer(){
   }catch(e){}
   tickets=load(STORAGE_KEY,[]);
 }
+// One-time cleanup: remove duplicate tickets from DB that arose from different engineers'
+// personal-inbox syncs capturing the same email as separate tickets.
+// Keeps the "best" copy (manual overrides > most replies > most thread data > longest body),
+// merges useful fields from duplicates into the winner, then deletes the losers from DB.
+async function deduplicateTickets(){
+  const byNormSubj={};
+  tickets.forEach(t=>{
+    const ns=normalizeSubj(t.title);
+    if(!ns) return;
+    if(!byNormSubj[ns]) byNormSubj[ns]=[];
+    byNormSubj[ns].push(t);
+  });
+
+  const toDelete=[];
+
+  Object.values(byNormSubj).forEach(group=>{
+    if(group.length<=1) return;
+    const used=new Set();
+    group.forEach((a,i)=>{
+      if(used.has(a.id)) return;
+      const cluster=[a];
+      const aDate=new Date(a.created||'');
+      group.forEach((b,j)=>{
+        if(i===j||used.has(b.id)) return;
+        const bDate=new Date(b.created||'');
+        if(Math.abs(aDate-bDate)/86400000<14) cluster.push(b);
+      });
+      if(cluster.length<=1) return;
+
+      // Sort: prefer manual overrides, then most replies, then most thread entries, then longest body
+      cluster.sort((x,y)=>{
+        const xm=(x.manualStatus||x.manualCategory||x.manualAssignee)?1:0;
+        const ym=(y.manualStatus||y.manualCategory||y.manualAssignee)?1:0;
+        if(xm!==ym) return ym-xm;
+        if((y.replyCount||0)!==(x.replyCount||0)) return (y.replyCount||0)-(x.replyCount||0);
+        if((y.thread?.length||0)!==(x.thread?.length||0)) return (y.thread?.length||0)-(x.thread?.length||0);
+        return (y.description||'').length-(x.description||'').length;
+      });
+
+      const best=cluster[0];
+      cluster.slice(1).forEach(dup=>{
+        if((dup.replyCount||0)>(best.replyCount||0)){
+          best.replyCount=dup.replyCount;
+          if(dup.latestBody) best.latestBody=dup.latestBody;
+        }
+        if((dup.thread?.length||0)>(best.thread?.length||0)) best.thread=dup.thread;
+        if(!best.hasAttachments&&dup.hasAttachments) best.hasAttachments=true;
+        used.add(dup.id);
+        toDelete.push(dup.id);
+      });
+      cluster.forEach(t=>used.add(t.id));
+    });
+  });
+
+  if(toDelete.length===0) return 0;
+  const delSet=new Set(toDelete);
+  tickets=tickets.filter(t=>!delSet.has(t.id));
+  try{
+    await fetch('/api/tickets/delete-many',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(toDelete)});
+  }catch(e){console.warn('Dedup delete failed:',e.message);}
+  saveTickets();
+  console.log(`Deduplication: removed ${toDelete.length} duplicate tickets`);
+  return toDelete.length;
+}
+
 const saveCfg     = ()=>save(CFG_KEY,cfg);
 const loadCfg     = ()=>{cfg={...cfg,...(load(CFG_KEY,{})||{})};};
 const saveAuth    = ()=>save(AUTH_KEY,auth);
@@ -1117,6 +1182,7 @@ async function showApp(){
   document.getElementById('cfg-apikey').value=cfg.apiKey||'';
   updateTokenUsageDisplay();clearRange(); // All time — same baseline for every user
   await loadTicketsFromServer();
+  await deduplicateTickets(); // remove cross-user duplicates from DB
   reClassifyTickets();
   renderAll();scheduleRefresh();checkAutoSync();startDbPoll();
 }
@@ -1149,6 +1215,15 @@ function reClassifyTickets(){
       }
     }
     if(t.source!=='outlook') return;
+    // Backfill externalRecipient for tickets imported before this field was added.
+    // Engineer-sent emails almost always go to vessels, so treat internal-reporter tickets
+    // as having external recipients — this prevents detectStatus() from auto-resolving them.
+    if(t.externalRecipient===undefined||t.externalRecipient===null){
+      const rep=(t.reporter||'').toLowerCase();
+      const isInternalSender=ENGINEERS.some(e=>rep===e.email.toLowerCase())||rep.endsWith('@aships.co.uk');
+      t.externalRecipient=isInternalSender; // engineer-originated → sent to vessel (external)
+      changed=true;
+    }
     // Category — re-classify if detection gives a different result.
     // Allow any change EXCEPT downgrading a specific category to Other (avoids oscillation).
     // This lets wrongly-classified Report tickets get corrected on page refresh.

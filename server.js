@@ -116,6 +116,25 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // POST /api/tickets/delete-many — delete an array of ticket IDs from DB
+  if (url === '/api/tickets/delete-many' && req.method === 'POST') {
+    if (!pool) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}'); return; }
+    try {
+      const body = await readBody(req);
+      const ids = JSON.parse(body);
+      if (!Array.isArray(ids)) throw new Error('Expected array of IDs');
+      for (const id of ids) {
+        await pool.query('DELETE FROM pms_tickets WHERE id = $1', [id]);
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, deleted: ids.length }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   // POST /api/tickets/save — upsert full ticket array (batch sync from client)
   if (url === '/api/tickets/save' && req.method === 'POST') {
     if (!pool) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}'); return; }
