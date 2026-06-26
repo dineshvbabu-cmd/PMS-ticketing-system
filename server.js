@@ -101,14 +101,20 @@ const server = http.createServer(async (req, res) => {
   }
 
   // GET /api/tickets — return all tickets ordered by created date
+  // Strip thread bodies server-side so the response stays small regardless
+  // of what is stored in DB (old rows may have full email thread bodies).
   if (url === '/api/tickets' && req.method === 'GET') {
     if (!pool) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('[]'); return; }
     try {
       const result = await pool.query(
         `SELECT data FROM pms_tickets ORDER BY (data->>'created') DESC`
       );
+      const slim = result.rows.map(r => {
+        const t = r.data;
+        return { ...t, thread: [], latestBody: typeof t.latestBody === 'string' ? t.latestBody.slice(0, 500) : '' };
+      });
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(result.rows.map(r => r.data)));
+      res.end(JSON.stringify(slim));
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message }));
