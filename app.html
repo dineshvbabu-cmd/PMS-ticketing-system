@@ -524,30 +524,26 @@ const isMasterUser=()=>{
 };
 const loadTickets = ()=>{tickets=load(STORAGE_KEY,[]); };
 async function loadTicketsFromServer(){
-  // Keep a snapshot of local tickets BEFORE the fetch so we can restore any
-  // tickets the DB is missing (e.g. ones erroneously deleted by another
-  // session's stale dedup run).
-  const priorLocal=load(STORAGE_KEY,[]);
   try{
     const r=await fetch('/api/tickets');
     if(r.ok){
       const d=await r.json();
       if(Array.isArray(d)&&d.length>0){
-        const dbIds=new Set(d.map(t=>t.id));
-        const localOnly=priorLocal.filter(t=>!dbIds.has(t.id));
-        if(localOnly.length>0){
-          // Restore local-only tickets to DB so other users see them too
-          if(_isHosted()) fetch('/api/tickets/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(localOnly)}).catch(()=>{});
-          tickets=[...d,...localOnly];
-        }else{
-          tickets=d;
-        }
-        save(STORAGE_KEY,tickets);
+        tickets=d;
+        // Cache a lightweight copy to localStorage — strip full thread bodies
+        // so we never hit the 5MB QuotaExceededError which previously caused
+        // the catch block to run and silently fall back to stale local data.
+        try{
+          const slim=tickets.map(t=>({...t,thread:[],latestBody:(t.latestBody||'').slice(0,300)}));
+          save(STORAGE_KEY,slim);
+        }catch(e){}
         return;
       }
     }
   }catch(e){}
-  tickets=priorLocal;
+  // DB unreachable — use cached copy as read-only fallback only
+  const cached=load(STORAGE_KEY,[]);
+  if(cached.length>0) tickets=cached;
 }
 // One-time cleanup: remove duplicate tickets from DB that arose from different engineers'
 // personal-inbox syncs capturing the same email as separate tickets.
