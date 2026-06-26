@@ -1226,7 +1226,9 @@ function reClassifyTickets(){
       const target=detectEngineerFromText(hay);
       if(t.assignee!==target){t.assignee=target;tc=true;}
     }
-    if(tc)changedIds.add(t.id);
+    // Stamp updated so "newer wins" UPSERT prevents an old-code browser from
+    // overwriting these reclassified values with a stale full-list save.
+    if(tc){t.updated=new Date().toISOString();changedIds.add(t.id);}
   });
   // Always update localStorage; push only changed tickets to DB
   saveTicketsById(changedIds);

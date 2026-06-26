@@ -180,10 +180,15 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Serve app
+  // Serve app — no-cache so every user always gets the latest deployed code
   if (url === '/' || url === '/index.html') {
     const html = buildHtml(req);
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    });
     res.end(html);
     return;
   }
