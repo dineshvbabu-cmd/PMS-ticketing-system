@@ -436,6 +436,8 @@ const STORAGE_KEY= 'pms_tickets_v3';
 const CFG_KEY    = 'pms_config_v2';
 const AUTH_KEY   = 'pms_auth_v1';
 const SYNC_KEY   = 'pms_last_sync_v1';
+// Only this account syncs emails into the shared DB — all others are read-only viewers.
+const SYNC_MASTER= 'd.babu@aships.co.uk';
 const ENGINEERS  = [
   {email:'v.boppudi@aships.co.uk', name:'V. Boppudi', initials:'VB', cls:'avatar'},
   {email:'a.desingh@aships.co.uk', name:'A. Desingh', initials:'AD', cls:'avatar avatar-AD'},
@@ -884,6 +886,12 @@ function normalizeSubj(s){return(s||'').replace(/^(re|fw|fwd):\s*/gi,'').trim().
 
 async function triggerSync(isAuto){
   if(!auth.accessToken){if(!isAuto)toast('Please sign in first','error');return;}
+  // Only the master sync account (d.babu) syncs new emails. All others are read-only viewers
+  // who get updates via the 2-minute DB poll — they never write tickets from their own inbox.
+  if((auth.upn||'').toLowerCase()!==SYNC_MASTER){
+    if(!isAuto)toast('Email sync runs from the master account only. Your view refreshes automatically every 2 min from the shared database.','error');
+    return;
+  }
   const btn=document.getElementById('sync-btn');btn.disabled=true;
   // Incremental: first sync = 1 year; subsequent = since last sync (minus 1-day buffer)
   const _lastSync=localStorage.getItem(SYNC_KEY);
@@ -1079,7 +1087,11 @@ async function triggerSync(isAuto){
   btn.disabled=false;
 }
 
-function scheduleAutoSync(){if(autoSyncTimer)clearTimeout(autoSyncTimer);autoSyncTimer=setTimeout(()=>triggerSync(true),60*60*1000);}
+function scheduleAutoSync(){
+  if((auth.upn||'').toLowerCase()!==SYNC_MASTER) return; // non-master: no auto-sync
+  if(autoSyncTimer)clearTimeout(autoSyncTimer);
+  autoSyncTimer=setTimeout(()=>triggerSync(true),60*60*1000);
+}
 
 function parseCSV(text){
   const rows=[];let row=[],cell='',inQ=false;
@@ -1164,13 +1176,20 @@ async function triggerSheetSync(){
   }finally{if(btn)btn.disabled=false;}
 }
 function checkAutoSync(){
+  const isMaster=(auth.upn||'').toLowerCase()===SYNC_MASTER;
+  // Hide Sync Now button for non-master users — they don't sync, they just read from DB
+  const syncBtn=document.getElementById('sync-btn');
+  if(syncBtn) syncBtn.style.display=isMaster?'':'none';
   const last=localStorage.getItem(SYNC_KEY);
   const lastDate=last?new Date(last):null;
   const hrs=lastDate&&!isNaN(lastDate)?(Date.now()-lastDate.getTime())/3600000:999;
   const nextSync=lastDate&&!isNaN(lastDate)?new Date(lastDate.getTime()+60*60*1000):null;
-  document.getElementById('last-sync-label').textContent=lastDate&&!isNaN(lastDate)?
-    'Synced: '+lastDate.toLocaleString()+(nextSync?' · Next: '+nextSync.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''):
-    'Never synced';
+  document.getElementById('last-sync-label').textContent=
+    isMaster
+      ?(lastDate&&!isNaN(lastDate)?'Synced: '+lastDate.toLocaleString()+(nextSync?' · Next: '+nextSync.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''):'Never synced')
+      :'Live — refreshes from shared DB every 2 min';
+  // Only the master account schedules auto-sync; others rely solely on startDbPoll()
+  if(!isMaster) return;
   if(hrs>=1)setTimeout(()=>triggerSync(true),2000);else autoSyncTimer=setTimeout(()=>triggerSync(true),(1-hrs)*3600000);
 }
 
