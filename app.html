@@ -536,19 +536,22 @@ async function loadTicketsFromServer(){
       const d=await r.json();
       if(Array.isArray(d)&&d.length>0){
         tickets=d;
-        // Cache a lightweight copy to localStorage — strip full thread bodies
-        // so we never hit the 5MB QuotaExceededError which previously caused
-        // the catch block to run and silently fall back to stale local data.
+        console.log('[PMS] Loaded',tickets.length,'tickets from DB');
         try{
           const slim=tickets.map(t=>({...t,thread:[],latestBody:(t.latestBody||'').slice(0,300)}));
           save(STORAGE_KEY,slim);
         }catch(e){}
         return;
+      } else {
+        console.warn('[PMS] DB returned empty or non-array:',d);
       }
+    } else {
+      console.error('[PMS] GET /api/tickets returned HTTP',r.status);
     }
   }catch(e){console.error('[PMS] loadTicketsFromServer failed:',e);}
   // DB unreachable — use cached copy as read-only fallback only
   const cached=load(STORAGE_KEY,[]);
+  console.warn('[PMS] Falling back to localStorage:',cached.length,'tickets');
   if(cached.length>0) tickets=cached;
 }
 // One-time cleanup: remove duplicate tickets from DB that arose from different engineers'

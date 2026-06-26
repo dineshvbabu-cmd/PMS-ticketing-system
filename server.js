@@ -100,6 +100,20 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Debug — DB row count and response size estimate (no auth required)
+  if (url === '/api/debug' && req.method === 'GET') {
+    if (!pool) { res.writeHead(200, {'Content-Type':'application/json'}); res.end(JSON.stringify({db:false})); return; }
+    try {
+      const r = await pool.query(`SELECT COUNT(*) as total, pg_size_pretty(SUM(pg_column_size(data))) as data_size FROM pms_tickets`);
+      res.writeHead(200, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ db: true, ticket_count: parseInt(r.rows[0].total), data_size: r.rows[0].data_size }));
+    } catch(e) {
+      res.writeHead(500, {'Content-Type':'application/json'});
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   // GET /api/tickets — return all tickets ordered by created date
   // Strip thread bodies server-side so the response stays small regardless
   // of what is stored in DB (old rows may have full email thread bodies).
