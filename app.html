@@ -499,10 +499,23 @@ let chartStatus=null, chartTime=null, chartVesselSub=null, autoSyncTimer=null, r
 
 const save   = (k,v)=>localStorage.setItem(k,JSON.stringify(v));
 const load   = (k,d)=>{try{return JSON.parse(localStorage.getItem(k)||'null')||d;}catch{return d;}};
+const _isHosted=()=>window.location.protocol==='https:'||(window.location.hostname&&window.location.hostname!=='localhost'&&!window.location.protocol.startsWith('file'));
+// Save ALL tickets (full sync/sheet sync only — do not call during auto-reclassify)
 const saveTickets = ()=>{
   save(STORAGE_KEY,tickets);
-  const hosted=window.location.protocol==='https:'||(window.location.hostname&&window.location.hostname!=='localhost'&&!window.location.protocol.startsWith('file'));
-  if(hosted) fetch('/api/tickets/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(tickets)}).catch(()=>{});
+  if(_isHosted()) fetch('/api/tickets/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(tickets)}).catch(()=>{});
+};
+// Save only SPECIFIC tickets to DB — used by reClassifyTickets to avoid full-list overwrites
+const saveTicketsById = (ids)=>{
+  save(STORAGE_KEY,tickets);
+  if(!_isHosted()||!ids||ids.size===0) return;
+  const subset=tickets.filter(t=>ids.has(t.id));
+  if(subset.length) fetch('/api/tickets/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(subset)}).catch(()=>{});
+};
+// Returns true if the current logged-in user is the d.babu master account
+const isMasterUser=()=>{
+  const e=(auth.email||auth.upn||'').toLowerCase();
+  return e==='d.babu@aships.co.uk';
 };
 const loadTickets = ()=>{tickets=load(STORAGE_KEY,[]); };
 async function loadTicketsFromServer(){
@@ -526,6 +539,7 @@ async function deduplicateTickets(){
   });
 
   const toDelete=[];
+  const bestIds=new Set(); // IDs of winner tickets that had data merged into them
 
   Object.values(byNormSubj).forEach(group=>{
     if(group.length<=1) return;
@@ -562,17 +576,23 @@ async function deduplicateTickets(){
         used.add(dup.id);
         toDelete.push(dup.id);
       });
+      bestIds.add(best.id);
       cluster.forEach(t=>used.add(t.id));
     });
   });
 
   if(toDelete.length===0) return 0;
   const delSet=new Set(toDelete);
+  // Save merged winner tickets BEFORE deleting duplicates so we don't lose data
+  const winners=tickets.filter(t=>!delSet.has(t.id)&&bestIds.has(t.id));
+  if(winners.length&&_isHosted()){
+    try{await fetch('/api/tickets/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(winners)});}catch(e){}
+  }
   tickets=tickets.filter(t=>!delSet.has(t.id));
+  save(STORAGE_KEY,tickets);
   try{
     await fetch('/api/tickets/delete-many',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(toDelete)});
   }catch(e){console.warn('Dedup delete failed:',e.message);}
-  saveTickets();
   console.log(`Deduplication: removed ${toDelete.length} duplicate tickets`);
   return toDelete.length;
 }
@@ -636,7 +656,7 @@ function handleImplicitToken(hash){
   if(!accessToken){setLoginStatus('No token received. Try again.');return;}
   let name='',upn='';
   try{const pl=JSON.parse(atob(idToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));name=pl.name||'';upn=pl.preferred_username||pl.upn||'';}catch{}
-  auth={accessToken,refreshToken:'',expiresAt:Date.now()+expiresIn*1000,name,upn};
+  auth={accessToken,refreshToken:'',expiresAt:Date.now()+expiresIn*1000,name,upn,email:upn.toLowerCase()};
   saveAuth();scheduleRefresh();showApp();
 }
 
@@ -1046,7 +1066,7 @@ function parseCSV(text){
 }
 
 async function triggerSheetSync(){
-  if((auth.upn||'').toLowerCase()!=='d.babu@aships.co.uk'){
+  if(!isMasterUser()){
     toast('Sheet sync is restricted to d.babu@aships.co.uk to keep ticket numbers consistent for all users.','error');
     return;
   }
@@ -1133,12 +1153,18 @@ async function showApp(){
   loadCfg();loadTokenUsage();
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='';
-  document.getElementById('user-badge').textContent='User: '+(auth.name||auth.upn||'User');
   document.getElementById('cfg-apikey').value=cfg.apiKey||'';
+  // Fetch the real email from Graph API — token claims (preferred_username) are sometimes
+  // missing or wrong in implicit flow; /me is authoritative.
+  try{
+    const me=await gf('/me?$select=mail,userPrincipalName');
+    auth.email=(me.mail||me.userPrincipalName||auth.upn||'').toLowerCase();
+    saveAuth();
+  }catch(e){auth.email=(auth.upn||'').toLowerCase();}
+  document.getElementById('user-badge').textContent='User: '+(auth.name||auth.upn||'User')+' ('+auth.email+')';
   // Restrict Sheet sync button to d.babu only so SHEETS tickets are not duplicated per user
-  const _isMaster=(auth.upn||'').toLowerCase()==='d.babu@aships.co.uk';
   const _sheetBtn=document.getElementById('sheet-sync-btn');
-  if(_sheetBtn) _sheetBtn.style.display=_isMaster?'':'none';
+  if(_sheetBtn) _sheetBtn.style.display=isMasterUser()?'':'none';
   updateTokenUsageDisplay();clearRange(); // All time — same baseline for every user
   await loadTicketsFromServer();
   await deduplicateTickets(); // remove cross-user duplicates from DB
@@ -1157,57 +1183,53 @@ document.addEventListener('visibilitychange',()=>{
   if(!document.hidden&&auth.accessToken) loadTicketsFromServer().then(()=>{reClassifyTickets();renderAll();});
 });
 
-// Re-apply all auto-detections to every Outlook ticket that hasn't been manually overridden.
-// Runs on page load and after every server refresh so DB staleness doesn't matter.
+// Re-apply all auto-detections to every ticket that hasn't been manually overridden.
+// CRITICAL: only saves CHANGED tickets to DB (not the full list) so different users'
+// local runs can't overwrite each other's targeted updates via a stale full-list save.
 function reClassifyTickets(){
-  let changed=false;
+  const changedIds=new Set();
   const NOW=Date.now();
   tickets.forEach(t=>{
-    // Auto-close Resolved tickets whose original email/issue date is older than 90 days.
-    // Must use t.created (the email receivedDateTime / sheet row date) not t.updated,
-    // because t.updated is set to the import timestamp when a ticket is first synced —
-    // a 1-year-old email imported today would have t.updated=today and never auto-close.
+    let tc=false;
+    // Auto-close: Resolved tickets whose original email/issue date is older than 90 days.
     if(t.status==='Resolved'){
       const ref=t.created||'';
       if(ref&&(NOW-new Date(ref).getTime())>90*86400000){
-        t.status='Closed';t.manualStatus=true;t.updated=new Date().toISOString();changed=true;
+        t.status='Closed';t.manualStatus=true;t.updated=new Date().toISOString();tc=true;
       }
     }
-    if(t.source!=='outlook') return;
-    // Backfill externalRecipient for tickets imported before this field was added.
-    // Engineer-sent emails almost always go to vessels, so treat internal-reporter tickets
-    // as having external recipients — this prevents detectStatus() from auto-resolving them.
+    if(t.source!=='outlook'){if(tc)changedIds.add(t.id);return;}
+    // Backfill externalRecipient for old tickets that predate this field.
     if(t.externalRecipient===undefined||t.externalRecipient===null){
       const rep=(t.reporter||'').toLowerCase();
-      const isInternalSender=ENGINEERS.some(e=>rep===e.email.toLowerCase())||rep.endsWith('@aships.co.uk');
-      t.externalRecipient=isInternalSender; // engineer-originated → sent to vessel (external)
-      changed=true;
+      t.externalRecipient=ENGINEERS.some(e=>rep===e.email.toLowerCase())||rep.endsWith('@aships.co.uk');
+      tc=true;
     }
-    // Category — re-classify if detection gives a different result.
-    // Allow any change EXCEPT downgrading a specific category to Other (avoids oscillation).
-    // This lets wrongly-classified Report tickets get corrected on page refresh.
+    // Category
     if(!t.manualCategory){
       const nc=detectCategory(t.title,t.description,t.reporter||'');
-      if(nc!==t.category&&(nc!=='Other'||t.category==='Other')){t.category=nc;changed=true;}
-      if(t.category==='Vessel Support'){const vst=detectVesselSubCategory(t.title,t.description);if(t.vesselSupportType!==vst){t.vesselSupportType=vst;changed=true;}}
+      if(nc!==t.category&&(nc!=='Other'||t.category==='Other')){t.category=nc;tc=true;}
+      if(t.category==='Vessel Support'){const vst=detectVesselSubCategory(t.title,t.description);if(t.vesselSupportType!==vst){t.vesselSupportType=vst;tc=true;}}
     }
     // Priority
     if(!t.manualPriority&&t.priority==='Medium'){
-      const np=detectPriority(t.title,t.description);if(np!=='Medium'){t.priority=np;changed=true;}
+      const np=detectPriority(t.title,t.description);if(np!=='Medium'){t.priority=np;tc=true;}
     }
-    // Status — Report tickets are always Resolved (informational, no action needed)
+    // Status
     if(!t.manualStatus){
       const ns=t.category==='Report'?'Resolved':detectStatus(t.replyCount||0,t.latestBody||'',t.description||'',t.reporter||'',t.created||'',t.category||'',t.title||'',t.externalRecipient||false);
-      if(t.status!==ns){t.status=ns;changed=true;}
+      if(t.status!==ns){t.status=ns;tc=true;}
     }
-    // Engineer — vessel name match first, then name hints, then D. Babu
+    // Assignee
     if(!t.manualAssignee){
       const hay=((t.title||'')+' '+(t.description||'')+' '+(t.latestBody||'')).toLowerCase();
       const target=detectEngineerFromText(hay);
-      if(t.assignee!==target){t.assignee=target;changed=true;}
+      if(t.assignee!==target){t.assignee=target;tc=true;}
     }
+    if(tc)changedIds.add(t.id);
   });
-  if(changed)saveTickets();
+  // Always update localStorage; push only changed tickets to DB
+  saveTicketsById(changedIds);
 }
 
 function showTokenDetails(){alert(`Claude API Usage\n\nCalls: ${tokenUsage.calls}\nInput: ${tokenUsage.input.toLocaleString()} tokens\nOutput: ${tokenUsage.output.toLocaleString()} tokens\nEst. cost: ${tokenCost()}`);}
