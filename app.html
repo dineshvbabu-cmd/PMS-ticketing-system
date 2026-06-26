@@ -711,7 +711,7 @@ function scheduleRefresh(){
   refreshTimer=setTimeout(async()=>{
     const ok=await refreshAccessToken();
     if(ok){scheduleRefresh();}
-    else{const b=document.getElementById('user-badge');if(b){b.textContent='Session expiring - refresh page';b.style.color='#dc2626';}}
+    else{const b=document.getElementById('user-badge');if(b){b.innerHTML='Session expired &nbsp;<button onclick="loginWithMicrosoft()" style="font-size:11px;padding:2px 8px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer">Sign in again</button>';b.style.color='#dc2626';}}
   },ms);
 }
 
@@ -1201,14 +1201,19 @@ async function showApp(){
 }
 function startDbPoll(){
   if(dbPollTimer)clearInterval(dbPollTimer);
-  // Poll the shared DB every 2 minutes so manual changes by any team member propagate without needing a page reload
+  // Poll every 30 seconds — DB reads need no auth token, so run even if Graph
+  // session has expired or the tab is in the background. This ensures all
+  // engineers see status/count changes within 30 seconds without a manual refresh.
   dbPollTimer=setInterval(async()=>{
-    if(document.hidden||!auth.accessToken)return;
     await loadTicketsFromServer();reClassifyTickets();renderAll();
-  },2*60*1000);
+  },30*1000);
 }
+// Fetch immediately when user switches back to this tab or focuses the window
 document.addEventListener('visibilitychange',()=>{
-  if(!document.hidden&&auth.accessToken) loadTicketsFromServer().then(()=>{reClassifyTickets();renderAll();});
+  if(!document.hidden) loadTicketsFromServer().then(()=>{reClassifyTickets();renderAll();});
+});
+window.addEventListener('focus',()=>{
+  loadTicketsFromServer().then(()=>{reClassifyTickets();renderAll();});
 });
 
 // Re-apply all auto-detections to every ticket that hasn't been manually overridden.
