@@ -144,10 +144,16 @@ const server = http.createServer(async (req, res) => {
       if (!Array.isArray(tickets)) throw new Error('Expected array');
       for (const ticket of tickets) {
         if (!ticket.id) continue;
+        // "Newer wins": only overwrite if the incoming ticket's updated timestamp is
+        // >= the stored one. This prevents a user with a stale local copy from
+        // overwriting a more recent manual change made by another user.
         await pool.query(
           `INSERT INTO pms_tickets (id, data, updated_at)
            VALUES ($1, $2::jsonb, NOW())
-           ON CONFLICT (id) DO UPDATE SET data = $2::jsonb, updated_at = NOW()`,
+           ON CONFLICT (id) DO UPDATE
+             SET data = EXCLUDED.data, updated_at = NOW()
+             WHERE COALESCE((pms_tickets.data->>'updated')::timestamptz, '1970-01-01')
+                <= COALESCE((EXCLUDED.data->>'updated')::timestamptz, NOW())`,
           [ticket.id, JSON.stringify(ticket)]
         );
       }

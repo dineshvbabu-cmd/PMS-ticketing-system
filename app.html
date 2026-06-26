@@ -1046,6 +1046,10 @@ function parseCSV(text){
 }
 
 async function triggerSheetSync(){
+  if((auth.upn||'').toLowerCase()!=='d.babu@aships.co.uk'){
+    toast('Sheet sync is restricted to d.babu@aships.co.uk to keep ticket numbers consistent for all users.','error');
+    return;
+  }
   const SHEET_CSV='https://docs.google.com/spreadsheets/d/1Zpjr1zo7WJGIv2ytHLfkRMMg-NIDCU2w82gMzSUyMs4/export?format=csv&gid=1617382002';
   const btn=document.getElementById('sheet-sync-btn');if(btn)btn.disabled=true;
   setSyncBar('fetching','Fetching PMS implementation tracker...');
@@ -1131,6 +1135,10 @@ async function showApp(){
   document.getElementById('app').style.display='';
   document.getElementById('user-badge').textContent='User: '+(auth.name||auth.upn||'User');
   document.getElementById('cfg-apikey').value=cfg.apiKey||'';
+  // Restrict Sheet sync button to d.babu only so SHEETS tickets are not duplicated per user
+  const _isMaster=(auth.upn||'').toLowerCase()==='d.babu@aships.co.uk';
+  const _sheetBtn=document.getElementById('sheet-sync-btn');
+  if(_sheetBtn) _sheetBtn.style.display=_isMaster?'':'none';
   updateTokenUsageDisplay();clearRange(); // All time — same baseline for every user
   await loadTicketsFromServer();
   await deduplicateTickets(); // remove cross-user duplicates from DB
@@ -1162,7 +1170,7 @@ function reClassifyTickets(){
     if(t.status==='Resolved'){
       const ref=t.created||'';
       if(ref&&(NOW-new Date(ref).getTime())>90*86400000){
-        t.status='Closed';t.manualStatus=true;changed=true;
+        t.status='Closed';t.manualStatus=true;t.updated=new Date().toISOString();changed=true;
       }
     }
     if(t.source!=='outlook') return;
