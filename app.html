@@ -1138,9 +1138,12 @@ function reClassifyTickets(){
   let changed=false;
   const NOW=Date.now();
   tickets.forEach(t=>{
-    // Auto-close Resolved tickets older than 90 days (applies to all sources)
+    // Auto-close Resolved tickets whose original email/issue date is older than 90 days.
+    // Must use t.created (the email receivedDateTime / sheet row date) not t.updated,
+    // because t.updated is set to the import timestamp when a ticket is first synced —
+    // a 1-year-old email imported today would have t.updated=today and never auto-close.
     if(t.status==='Resolved'){
-      const ref=t.updated||t.created||'';
+      const ref=t.created||'';
       if(ref&&(NOW-new Date(ref).getTime())>90*86400000){
         t.status='Closed';t.manualStatus=true;changed=true;
       }
