@@ -815,6 +815,8 @@ function detectPriority(subject,body){
   return 'Medium';
 }
 
+function normalizeSubj(s){return(s||'').replace(/^(re|fw|fwd):\s*/gi,'').trim().toLowerCase();}
+
 async function triggerSync(isAuto){
   if(!auth.accessToken){if(!isAuto)toast('Please sign in first','error');return;}
   const btn=document.getElementById('sync-btn');btn.disabled=true;
@@ -881,8 +883,23 @@ async function triggerSync(isAuto){
     if(!emails.length){setSyncBar('done','No emails found');btn.disabled=false;scheduleAutoSync();return;}
     setSyncBar('classifying',`Processing ${emails.length} emails from ${src}...`);
     const byRef={};tickets.forEach(t=>{if(t.outlookRef)byRef[t.outlookRef]=t;});
+    // Build normalized-subject → open/in-progress ticket map so engineer reply emails
+    // (sent directly to vessel, not via group) can update the parent ticket instead of
+    // creating a duplicate ticket with reply count 0
+    const openByNormSubj={};
+    tickets.forEach(t=>{
+      if(t.source==='outlook'&&!t.manualStatus&&(t.status==='Open'||t.status==='In Progress')){
+        const ns=normalizeSubj(t.title);if(ns&&!openByNormSubj[ns])openByNormSubj[ns]=t;
+      }
+    });
+    const replyEmailIds=new Set(emails.filter(e=>{
+      if(byRef[e.id]) return false;
+      if(!(e.from?.emailAddress?.address||'').toLowerCase().endsWith('@aships.co.uk')) return false;
+      const ns=normalizeSubj(e.subject||'');const par=ns?openByNormSubj[ns]:null;
+      return !!(par&&new Date(par.created)<=new Date(e.receivedDateTime||''));
+    }).map(e=>e.id));
     let imported=0,updated=0;
-    const newEmails=emails.filter(e=>!byRef[e.id]);
+    const newEmails=emails.filter(e=>!byRef[e.id]&&!replyEmailIds.has(e.id));
     // Keyword-based defaults (works without API key)
     let cls=newEmails.map(e=>({priority:detectPriority(e.subject,e.bodyPreview),category:detectCategory(e.subject,e.bodyPreview,e.from?.emailAddress?.address||''),title:(e.subject||'No Subject').slice(0,80)}));
     if(newEmails.length&&(cfg.apiKey||ANTHROPIC_KEY_SERVER)){
@@ -914,6 +931,16 @@ async function triggerSync(isAuto){
         if(email.replyCount!==undefined&&email.replyCount!==ex.replyCount){ex.replyCount=email.replyCount;if(email.latestBody&&email.latestBody!==ex.latestBody){ex.latestBody=email.latestBody;if(!ex.comments)ex.comments=[];ex.comments.push({author:'Outlook Sync',text:'New reply: '+email.latestBody.slice(0,200),time:now});}changed=true;}
         if(email.thread?.length&&(email.thread.length>(ex.thread?.length||0))){ex.thread=email.thread;changed=true;}
         if(changed){ex.updated=now;updated++;}
+      }else if(replyEmailIds.has(email.id)){
+        // Engineer replied directly to vessel — update parent ticket, don't create a new one
+        const ns=normalizeSubj(email.subject||'');const par=ns?openByNormSubj[ns]:null;
+        if(par){
+          const next=(par.replyCount||0)+1;
+          par.replyCount=next;
+          if(email.latestBody||email.bodyPreview)par.latestBody=email.latestBody||email.bodyPreview||'';
+          const ns3=par.category==='Report'?'Resolved':detectStatus(next,par.latestBody,par.description||'',par.reporter||'',par.created||'',par.category||'',par.title||'',true);
+          if(!par.manualStatus&&par.status!==ns3){par.status=ns3;par.updated=now;updated++;}
+        }
       }else{
         const c=cls[ni++]||{};
         const _cat=c.category||_emailCat;const _finalStatus=_cat==='Report'?'Resolved':(_cat===_emailCat?autoStatus:detectStatus(email.replyCount||0,email.latestBody||'',email.bodyPreview||'',email.from?.emailAddress?.address||'',email.receivedDateTime||'',_cat,email.subject||'',_hasExternal));
