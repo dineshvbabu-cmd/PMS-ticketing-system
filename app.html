@@ -325,6 +325,11 @@ textarea.form-control{resize:vertical;min-height:80px}
           <b>DB</b> - d.babu@aships.co.uk (sync account)
         </div>
       </div>
+      <div id="admin-tools-section" style="display:none;background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:12px;margin-top:12px">
+        <div style="font-size:12px;font-weight:700;color:#b91c1c;margin-bottom:4px">Admin: Recovery Tools</div>
+        <div style="font-size:11px;color:#7f1d1d;margin-bottom:8px">Full Re-sync goes back 1 year and re-creates any tickets that were removed from the database. Use this once to recover after a count mismatch.</div>
+        <button class="btn btn-secondary btn-sm" onclick="adminFullResync()">Full Re-sync (1 Year)</button>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('settings-modal')">Cancel</button>
@@ -519,11 +524,30 @@ const isMasterUser=()=>{
 };
 const loadTickets = ()=>{tickets=load(STORAGE_KEY,[]); };
 async function loadTicketsFromServer(){
+  // Keep a snapshot of local tickets BEFORE the fetch so we can restore any
+  // tickets the DB is missing (e.g. ones erroneously deleted by another
+  // session's stale dedup run).
+  const priorLocal=load(STORAGE_KEY,[]);
   try{
     const r=await fetch('/api/tickets');
-    if(r.ok){const d=await r.json();if(Array.isArray(d)&&d.length>0){tickets=d;save(STORAGE_KEY,tickets);return;}}
+    if(r.ok){
+      const d=await r.json();
+      if(Array.isArray(d)&&d.length>0){
+        const dbIds=new Set(d.map(t=>t.id));
+        const localOnly=priorLocal.filter(t=>!dbIds.has(t.id));
+        if(localOnly.length>0){
+          // Restore local-only tickets to DB so other users see them too
+          if(_isHosted()) fetch('/api/tickets/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(localOnly)}).catch(()=>{});
+          tickets=[...d,...localOnly];
+        }else{
+          tickets=d;
+        }
+        save(STORAGE_KEY,tickets);
+        return;
+      }
+    }
   }catch(e){}
-  tickets=load(STORAGE_KEY,[]);
+  tickets=priorLocal;
 }
 // One-time cleanup: remove duplicate tickets from DB that arose from different engineers'
 // personal-inbox syncs capturing the same email as separate tickets.
@@ -1167,7 +1191,11 @@ async function showApp(){
   if(_sheetBtn) _sheetBtn.style.display=isMasterUser()?'':'none';
   updateTokenUsageDisplay();clearRange(); // All time — same baseline for every user
   await loadTicketsFromServer();
-  await deduplicateTickets(); // remove cross-user duplicates from DB
+  // deduplicateTickets() DISABLED: we only sync from the shared group mailbox now,
+  // so there are no cross-inbox duplicates to clean up. The old dedup was deleting
+  // real tickets (distinct emails that shared a common subject line, e.g. multiple
+  // "Error in PMS" reports from different vessels within 14 days) which caused
+  // different users to see different ticket counts.
   reClassifyTickets();
   renderAll();scheduleRefresh();checkAutoSync();startDbPoll();
 }
@@ -1251,9 +1279,18 @@ function openSettings(){
   document.getElementById('cfg-apikey').value=cfg.apiKey||'';
   const note=document.getElementById('apikey-note');
   if(ANTHROPIC_KEY_SERVER&&note){note.innerHTML='<span style="color:#15803d;font-weight:600">API key configured via server environment variable.</span>';document.getElementById('cfg-apikey').placeholder='Provided by server';document.getElementById('cfg-apikey').disabled=true;}
+  const adminSection=document.getElementById('admin-tools-section');
+  if(adminSection) adminSection.style.display=isMasterUser()?'':'none';
   document.getElementById('settings-modal').style.display='flex';
 }
 function saveSettings(){cfg.apiKey=document.getElementById('cfg-apikey').value.trim();saveCfg();closeModal('settings-modal');toast('Settings saved','success');}
+function adminFullResync(){
+  if(!isMasterUser()){toast('Admin only','error');return;}
+  if(!confirm('This will re-sync all emails from the past 1 year to recover any missing tickets. Continue?'))return;
+  localStorage.removeItem(SYNC_KEY);
+  closeModal('settings-modal');
+  triggerSync(false);
+}
 function closeModal(id){document.getElementById(id).style.display='none';}
 function openNewTicket(){document.getElementById('new-ticket-modal').style.display='flex';}
 function switchTab(t,el){document.getElementById('tab-dashboard').style.display=t==='dashboard'?'':'none';document.getElementById('tab-tickets').style.display=t==='tickets'?'':'none';document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));el.classList.add('active');if(t==='dashboard')renderAll();}
