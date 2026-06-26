@@ -956,6 +956,7 @@ async function triggerSync(isAuto){
         if(!ex.manualStatus&&ex.status!==autoStatus){ex.status=autoStatus;changed=true;}
         if(email.replyCount!==undefined&&email.replyCount!==ex.replyCount){ex.replyCount=email.replyCount;if(email.latestBody&&email.latestBody!==ex.latestBody){ex.latestBody=email.latestBody;if(!ex.comments)ex.comments=[];ex.comments.push({author:'Outlook Sync',text:'New reply: '+email.latestBody.slice(0,200),time:now});}changed=true;}
         if(email.thread?.length&&(email.thread.length>(ex.thread?.length||0))){ex.thread=email.thread;changed=true;}
+        if(!ex.manualAssignee){const ne=detectEngineer(email);if(ne&&ne!==ex.assignee){ex.assignee=ne;changed=true;}}
         if(changed){ex.updated=now;updated++;}
       }else if(replyEmailIds.has(email.id)){
         // Engineer replied directly to vessel — update parent ticket, don't create a new one
@@ -999,6 +1000,9 @@ async function triggerSync(isAuto){
               if(fresh.replyCount!==t.replyCount){t.replyCount=fresh.replyCount;changed=true;}
               if(fresh.latestBody&&fresh.latestBody!==t.latestBody){t.latestBody=fresh.latestBody;changed=true;}
               if(fresh.thread?.length>(t.thread?.length||0)){t.thread=fresh.thread;changed=true;}
+              // Re-detect assignee from fresh thread recipients and body
+              if(!t.manualAssignee){const ne=detectEngineer(fresh);if(ne&&ne!==t.assignee){t.assignee=ne;changed=true;}}
+              // Re-detect status from updated thread data
               const ns=t.category==='Report'?'Resolved':detectStatus(t.replyCount,t.latestBody||'',t.description||'',t.reporter||'',t.created||'',t.category||'',t.title||'',t.externalRecipient||false);
               if(t.status!==ns){t.status=ns;t.updated=new Date().toISOString();recheckUpdated++;changed=true;}
             }catch(e){console.warn('Recheck failed:',t.title,e.message);}
@@ -1007,6 +1011,9 @@ async function triggerSync(isAuto){
         if(recheckUpdated>0){updated+=recheckUpdated;}
       }
     }
+    // Run full re-classification so updated latestBody / thread data feeds into
+    // text-based engineer detection (detectEngineerFromText) and status rules
+    reClassifyTickets();
     saveTickets();renderAll();
     const _now=new Date();
     localStorage.setItem(SYNC_KEY,_now.toISOString()); // ISO for reliable parsing
