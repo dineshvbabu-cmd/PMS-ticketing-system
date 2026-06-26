@@ -436,8 +436,6 @@ const STORAGE_KEY= 'pms_tickets_v3';
 const CFG_KEY    = 'pms_config_v2';
 const AUTH_KEY   = 'pms_auth_v1';
 const SYNC_KEY   = 'pms_last_sync_v1';
-// Only this account syncs emails into the shared DB — all others are read-only viewers.
-const SYNC_MASTER= 'd.babu@aships.co.uk';
 const ENGINEERS  = [
   {email:'v.boppudi@aships.co.uk', name:'V. Boppudi', initials:'VB', cls:'avatar'},
   {email:'a.desingh@aships.co.uk', name:'A. Desingh', initials:'AD', cls:'avatar avatar-AD'},
@@ -886,12 +884,6 @@ function normalizeSubj(s){return(s||'').replace(/^(re|fw|fwd):\s*/gi,'').trim().
 
 async function triggerSync(isAuto){
   if(!auth.accessToken){if(!isAuto)toast('Please sign in first','error');return;}
-  // Only the master sync account (d.babu) syncs new emails. All others are read-only viewers
-  // who get updates via the 2-minute DB poll — they never write tickets from their own inbox.
-  if((auth.upn||'').toLowerCase()!==SYNC_MASTER){
-    if(!isAuto)toast('Email sync runs from the master account only. Your view refreshes automatically every 2 min from the shared database.','error');
-    return;
-  }
   const btn=document.getElementById('sync-btn');btn.disabled=true;
   // Incremental: first sync = 1 year; subsequent = since last sync (minus 1-day buffer)
   const _lastSync=localStorage.getItem(SYNC_KEY);
@@ -903,62 +895,23 @@ async function triggerSync(isAuto){
   try{
     const after=_after;
     let emails=[],src='',capturedGroupId=null;
-    let groupFetchFailed=false;
+    // Only read from the shared group mailbox (pmslink.support@aships.co.uk).
+    // This is the single source of truth — every user querying the same group gets
+    // identical data, so counts are consistent regardless of who triggers the sync.
     try{
-      setSyncBar('fetching','Finding PMS Support group...');
+      setSyncBar('fetching','Finding PMS Support group mailbox...');
       let group=null;
       try{const gs=await gf(`/groups?$filter=mail eq 'pmslink.support@aships.co.uk'&$select=id,displayName,mail`);group=(gs.value||[])[0];}catch{}
       if(!group){const mg=await gf('/me/memberOf?$select=id,displayName,mail');group=(mg.value||[]).find(g=>g.mail?.toLowerCase().includes('pmslink'));}
       if(group){src=group.displayName;capturedGroupId=group.id;emails=await fetchGroupEmails(group.id,after);}
-      else{groupFetchFailed=true;console.warn('PMS Support group not found');}
-    }catch(e){groupFetchFailed=true;console.warn('Group fetch failed:',e.message);}
-    if(groupFetchFailed)toast('Group mailbox not accessible — falling back to inbox/sent search','error');
-    // Build a subject+date dedup set from group-captured emails (IDs are different namespaces)
-    const groupSubjDates=new Set(emails.map(e=>(e.subject||'').toLowerCase()+'|'+(e.receivedDateTime||'').slice(0,10)));
-    // Search personal inbox — include engineer-to-vessel emails (internal sender, external recipients)
-    // previously skipped all internal senders which missed engineer outbound emails not in group mailbox
-    try{
-      setSyncBar('fetching','Checking personal inbox...');
-      const pCutoff=new Date(after);
-      const pMails=await gfAll('/me/messages?$search="PMS"&$top=50&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,webLink,toRecipients,ccRecipients',3);
-      pMails.forEach(e=>{
-        if(new Date(e.receivedDateTime)<pCutoff) return;
-        const sender=(e.from?.emailAddress?.address||'').toLowerCase();
-        const recipients=[...(e.toRecipients||[]),...(e.ccRecipients||[])];
-        const hasExternal=recipients.some(r=>!(r.emailAddress?.address||'').toLowerCase().endsWith('@aships.co.uk'));
-        // Skip purely internal emails (engineer-to-engineer, no vessel)
-        if(sender.endsWith('@aships.co.uk')&&!hasExternal) return;
-        // Dedup against group-captured emails by subject+date
-        const subjDate=(e.subject||'').toLowerCase()+'|'+((e.receivedDateTime||'').slice(0,10));
-        if(groupSubjDates.has(subjDate)) return;
-        groupSubjDates.add(subjDate); // prevent duplicates from personal search itself
-        emails.push({id:e.id,subject:e.subject||'No Subject',from:e.from,receivedDateTime:e.receivedDateTime,lastReplyDate:e.receivedDateTime,bodyPreview:e.bodyPreview||'',latestBody:e.bodyPreview||'',replyCount:0,hasAttachments:e.hasAttachments||false,toRecipients:e.toRecipients||[],ccRecipients:e.ccRecipients||[],webLink:e.webLink||'',thread:[]});
-      });
-      if(!src&&emails.length)src='Personal inbox';
-    }catch(e){console.warn('Personal inbox search failed:',e.message);}
-    // Also sweep Sent Items — captures engineer outbound emails to vessels (missed by group conversations)
-    try{
-      setSyncBar('fetching','Checking sent items...');
-      const sCutoff=new Date(after);
-      const sentMails=await gfAll('/me/mailFolders/SentItems/messages?$top=30&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,webLink,toRecipients,ccRecipients',2);
-      sentMails.forEach(e=>{
-        if(new Date(e.receivedDateTime)<sCutoff) return;
-        const recipients=[...(e.toRecipients||[]),...(e.ccRecipients||[])];
-        const hasExternal=recipients.some(r=>!(r.emailAddress?.address||'').toLowerCase().endsWith('@aships.co.uk'));
-        if(!hasExternal) return; // skip internal-only sent emails
-        const subjDate=(e.subject||'').toLowerCase()+'|'+((e.receivedDateTime||'').slice(0,10));
-        if(groupSubjDates.has(subjDate)) return;
-        groupSubjDates.add(subjDate);
-        emails.push({id:e.id,subject:e.subject||'No Subject',from:e.from,receivedDateTime:e.receivedDateTime,lastReplyDate:e.receivedDateTime,bodyPreview:e.bodyPreview||'',latestBody:e.bodyPreview||'',replyCount:0,hasAttachments:e.hasAttachments||false,toRecipients:e.toRecipients||[],ccRecipients:e.ccRecipients||[],webLink:e.webLink||'',thread:[]});
-      });
-      if(!src&&emails.length)src='Sent items';
-    }catch(e){console.warn('Sent items search failed:',e.message);}
-    if(!emails.length){setSyncBar('done','No emails found');btn.disabled=false;scheduleAutoSync();return;}
+      else{setSyncBar('done','PMS Support group mailbox not found — ensure you are a member of pmslink.support@aships.co.uk');btn.disabled=false;return;}
+    }catch(e){setSyncBar('done','Group mailbox error: '+e.message);btn.disabled=false;return;}
+    if(!emails.length){setSyncBar('done','No new emails in group mailbox');btn.disabled=false;scheduleAutoSync();return;}
     setSyncBar('classifying',`Processing ${emails.length} emails from ${src}...`);
     const byRef={};tickets.forEach(t=>{if(t.outlookRef)byRef[t.outlookRef]=t;});
-    // Build normalized-subject → open/in-progress ticket map so engineer reply emails
-    // (sent directly to vessel, not via group) can update the parent ticket instead of
-    // creating a duplicate ticket with reply count 0
+    // Reply detection: if a group conversation thread contains a RE: reply from an engineer,
+    // match it to an existing open ticket by normalized subject so it updates replyCount
+    // rather than creating a duplicate ticket.
     const openByNormSubj={};
     tickets.forEach(t=>{
       if(t.source==='outlook'&&!t.manualStatus&&(t.status==='Open'||t.status==='In Progress')){
@@ -971,22 +924,8 @@ async function triggerSync(isAuto){
       const ns=normalizeSubj(e.subject||'');const par=ns?openByNormSubj[ns]:null;
       return !!(par&&new Date(par.created)<=new Date(e.receivedDateTime||''));
     }).map(e=>e.id));
-    // Build subject→dates map from ALL existing tickets so personal inbox / sent items emails
-    // don't create duplicates of emails already captured by another engineer's group-conversation sync.
-    // Each engineer syncing from their own account would otherwise add the same email as a separate
-    // ticket with replyCount=0 / Open, inflating counts and making numbers differ across users.
-    const subjDateMap={};
-    tickets.forEach(t=>{const ns=normalizeSubj(t.title);if(ns){if(!subjDateMap[ns])subjDateMap[ns]=[];subjDateMap[ns].push(new Date(t.created||''||0));}});
-    const dupSubjEmailIds=new Set(emails.filter(e=>{
-      if(byRef[e.id]) return false;
-      if(replyEmailIds.has(e.id)) return false;
-      const ns=normalizeSubj(e.subject||'');
-      if(!ns||!subjDateMap[ns]) return false;
-      const ed=new Date(e.receivedDateTime||'');
-      return subjDateMap[ns].some(d=>Math.abs(d-ed)/86400000<14); // same subject within 14 days
-    }).map(e=>e.id));
     let imported=0,updated=0;
-    const newEmails=emails.filter(e=>!byRef[e.id]&&!replyEmailIds.has(e.id)&&!dupSubjEmailIds.has(e.id));
+    const newEmails=emails.filter(e=>!byRef[e.id]&&!replyEmailIds.has(e.id));
     // Keyword-based defaults (works without API key)
     let cls=newEmails.map(e=>({priority:detectPriority(e.subject,e.bodyPreview),category:detectCategory(e.subject,e.bodyPreview,e.from?.emailAddress?.address||''),title:(e.subject||'No Subject').slice(0,80)}));
     if(newEmails.length&&(cfg.apiKey||ANTHROPIC_KEY_SERVER)){
@@ -1087,11 +1026,7 @@ async function triggerSync(isAuto){
   btn.disabled=false;
 }
 
-function scheduleAutoSync(){
-  if((auth.upn||'').toLowerCase()!==SYNC_MASTER) return; // non-master: no auto-sync
-  if(autoSyncTimer)clearTimeout(autoSyncTimer);
-  autoSyncTimer=setTimeout(()=>triggerSync(true),60*60*1000);
-}
+function scheduleAutoSync(){if(autoSyncTimer)clearTimeout(autoSyncTimer);autoSyncTimer=setTimeout(()=>triggerSync(true),60*60*1000);}
 
 function parseCSV(text){
   const rows=[];let row=[],cell='',inQ=false;
@@ -1176,20 +1111,13 @@ async function triggerSheetSync(){
   }finally{if(btn)btn.disabled=false;}
 }
 function checkAutoSync(){
-  const isMaster=(auth.upn||'').toLowerCase()===SYNC_MASTER;
-  // Hide Sync Now button for non-master users — they don't sync, they just read from DB
-  const syncBtn=document.getElementById('sync-btn');
-  if(syncBtn) syncBtn.style.display=isMaster?'':'none';
   const last=localStorage.getItem(SYNC_KEY);
   const lastDate=last?new Date(last):null;
   const hrs=lastDate&&!isNaN(lastDate)?(Date.now()-lastDate.getTime())/3600000:999;
   const nextSync=lastDate&&!isNaN(lastDate)?new Date(lastDate.getTime()+60*60*1000):null;
-  document.getElementById('last-sync-label').textContent=
-    isMaster
-      ?(lastDate&&!isNaN(lastDate)?'Synced: '+lastDate.toLocaleString()+(nextSync?' · Next: '+nextSync.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''):'Never synced')
-      :'Live — refreshes from shared DB every 2 min';
-  // Only the master account schedules auto-sync; others rely solely on startDbPoll()
-  if(!isMaster) return;
+  document.getElementById('last-sync-label').textContent=lastDate&&!isNaN(lastDate)?
+    'Synced: '+lastDate.toLocaleString()+(nextSync?' · Next: '+nextSync.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''):
+    'Never synced';
   if(hrs>=1)setTimeout(()=>triggerSync(true),2000);else autoSyncTimer=setTimeout(()=>triggerSync(true),(1-hrs)*3600000);
 }
 
