@@ -898,8 +898,22 @@ async function triggerSync(isAuto){
       const ns=normalizeSubj(e.subject||'');const par=ns?openByNormSubj[ns]:null;
       return !!(par&&new Date(par.created)<=new Date(e.receivedDateTime||''));
     }).map(e=>e.id));
+    // Build subject→dates map from ALL existing tickets so personal inbox / sent items emails
+    // don't create duplicates of emails already captured by another engineer's group-conversation sync.
+    // Each engineer syncing from their own account would otherwise add the same email as a separate
+    // ticket with replyCount=0 / Open, inflating counts and making numbers differ across users.
+    const subjDateMap={};
+    tickets.forEach(t=>{const ns=normalizeSubj(t.title);if(ns){if(!subjDateMap[ns])subjDateMap[ns]=[];subjDateMap[ns].push(new Date(t.created||''||0));}});
+    const dupSubjEmailIds=new Set(emails.filter(e=>{
+      if(byRef[e.id]) return false;
+      if(replyEmailIds.has(e.id)) return false;
+      const ns=normalizeSubj(e.subject||'');
+      if(!ns||!subjDateMap[ns]) return false;
+      const ed=new Date(e.receivedDateTime||'');
+      return subjDateMap[ns].some(d=>Math.abs(d-ed)/86400000<14); // same subject within 14 days
+    }).map(e=>e.id));
     let imported=0,updated=0;
-    const newEmails=emails.filter(e=>!byRef[e.id]&&!replyEmailIds.has(e.id));
+    const newEmails=emails.filter(e=>!byRef[e.id]&&!replyEmailIds.has(e.id)&&!dupSubjEmailIds.has(e.id));
     // Keyword-based defaults (works without API key)
     let cls=newEmails.map(e=>({priority:detectPriority(e.subject,e.bodyPreview),category:detectCategory(e.subject,e.bodyPreview,e.from?.emailAddress?.address||''),title:(e.subject||'No Subject').slice(0,80)}));
     if(newEmails.length&&(cfg.apiKey||ANTHROPIC_KEY_SERVER)){
@@ -941,6 +955,9 @@ async function triggerSync(isAuto){
           const ns3=par.category==='Report'?'Resolved':detectStatus(next,par.latestBody,par.description||'',par.reporter||'',par.created||'',par.category||'',par.title||'',true);
           if(!par.manualStatus&&par.status!==ns3){par.status=ns3;par.updated=now;updated++;}
         }
+      }else if(dupSubjEmailIds.has(email.id)){
+        // Subject+date matches a ticket already in DB from another user's sync — skip to avoid
+        // creating personal-inbox duplicates with wrong replyCount/status
       }else{
         const c=cls[ni++]||{};
         const _cat=c.category||_emailCat;const _finalStatus=_cat==='Report'?'Resolved':(_cat===_emailCat?autoStatus:detectStatus(email.replyCount||0,email.latestBody||'',email.bodyPreview||'',email.from?.emailAddress?.address||'',email.receivedDateTime||'',_cat,email.subject||'',_hasExternal));
