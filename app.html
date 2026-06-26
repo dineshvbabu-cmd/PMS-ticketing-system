@@ -1136,7 +1136,15 @@ document.addEventListener('visibilitychange',()=>{
 // Runs on page load and after every server refresh so DB staleness doesn't matter.
 function reClassifyTickets(){
   let changed=false;
+  const NOW=Date.now();
   tickets.forEach(t=>{
+    // Auto-close Resolved tickets older than 90 days (applies to all sources)
+    if(t.status==='Resolved'){
+      const ref=t.updated||t.created||'';
+      if(ref&&(NOW-new Date(ref).getTime())>90*86400000){
+        t.status='Closed';t.manualStatus=true;changed=true;
+      }
+    }
     if(t.source!=='outlook') return;
     // Category — re-classify if detection gives a different result.
     // Allow any change EXCEPT downgrading a specific category to Other (avoids oscillation).
