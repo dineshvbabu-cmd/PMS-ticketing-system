@@ -506,15 +506,21 @@ const save   = (k,v)=>localStorage.setItem(k,JSON.stringify(v));
 const load   = (k,d)=>{try{return JSON.parse(localStorage.getItem(k)||'null')||d;}catch{return d;}};
 const _isHosted=()=>window.location.protocol==='https:'||(window.location.hostname&&window.location.hostname!=='localhost'&&!window.location.protocol.startsWith('file'));
 // Save ALL tickets (full sync/sheet sync only — do not call during auto-reclassify)
+// Strip thread bodies before DB saves — keeps the payload small (thread is always
+// re-fetched live from Graph when a ticket is opened, so nothing is lost).
+const _slimForDb = t => ({...t, thread:[], latestBody:(t.latestBody||'').slice(0,500)});
 const saveTickets = ()=>{
   save(STORAGE_KEY,tickets);
-  if(_isHosted()) fetch('/api/tickets/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(tickets)}).catch(()=>{});
+  if(_isHosted()){
+    const slim=tickets.map(_slimForDb);
+    fetch('/api/tickets/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(slim)}).catch(()=>{});
+  }
 };
 // Save only SPECIFIC tickets to DB — used by reClassifyTickets to avoid full-list overwrites
 const saveTicketsById = (ids)=>{
   save(STORAGE_KEY,tickets);
   if(!_isHosted()||!ids||ids.size===0) return;
-  const subset=tickets.filter(t=>ids.has(t.id));
+  const subset=tickets.filter(t=>ids.has(t.id)).map(_slimForDb);
   if(subset.length) fetch('/api/tickets/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(subset)}).catch(()=>{});
 };
 // Returns true if the current logged-in user is the d.babu master account
@@ -540,7 +546,7 @@ async function loadTicketsFromServer(){
         return;
       }
     }
-  }catch(e){}
+  }catch(e){console.error('[PMS] loadTicketsFromServer failed:',e);}
   // DB unreachable — use cached copy as read-only fallback only
   const cached=load(STORAGE_KEY,[]);
   if(cached.length>0) tickets=cached;
