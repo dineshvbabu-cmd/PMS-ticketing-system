@@ -154,6 +154,13 @@ textarea.form-control{resize:vertical;min-height:80px}
     <span id="user-badge" style="font-size:12px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;padding:4px 10px;color:#475569"></span>
     <span id="token-usage-badge" style="font-size:11px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:4px 10px;color:#15803d;cursor:pointer" onclick="showTokenDetails()" title="Click for usage details"></span>
     <span id="last-sync-label" style="font-size:11px;color:#94a3b8;white-space:nowrap"></span>
+    <div style="position:relative">
+      <button id="notif-bell" onclick="toggleNotifPanel()" style="position:relative;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;padding:4px 10px;cursor:pointer;font-size:15px;line-height:1" title="Notifications">🔔<span id="notif-count" style="display:none;position:absolute;top:-5px;right:-5px;background:#ef4444;color:#fff;border-radius:50%;min-width:17px;height:17px;font-size:10px;font-weight:700;text-align:center;line-height:17px;padding:0 3px">0</span></button>
+      <div id="notif-panel" style="display:none;position:absolute;top:38px;right:0;width:340px;max-height:420px;overflow-y:auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.15);z-index:500">
+        <div style="padding:10px 14px;font-weight:700;font-size:13px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:#fff">Notifications<button onclick="markAllNotifsRead()" style="font-size:11px;background:none;border:none;color:#6b7280;cursor:pointer;padding:0">Mark all read</button></div>
+        <div id="notif-list"><div style="padding:20px;text-align:center;color:#9ca3af;font-size:13px">No notifications</div></div>
+      </div>
+    </div>
     <button class="btn btn-secondary btn-sm" onclick="openSettings()">Settings</button>
     <button class="btn btn-secondary btn-sm" id="sync-btn" onclick="triggerSync(false)">Sync Now</button>
     <button class="btn btn-secondary btn-sm" id="sheet-sync-btn" onclick="triggerSheetSync()" title="Sync PMS implementation tracker from Google Sheets">Sync Sheet</button>
@@ -1009,7 +1016,7 @@ async function triggerSync(isAuto){
         if(!ex.manualStatus&&ex.status!==autoStatus){ex.status=autoStatus;changed=true;}
         if(email.replyCount!==undefined&&email.replyCount!==ex.replyCount){ex.replyCount=email.replyCount;if(email.latestBody&&email.latestBody!==ex.latestBody){ex.latestBody=email.latestBody;if(!ex.comments)ex.comments=[];ex.comments.push({author:'Outlook Sync',text:'New reply: '+email.latestBody.slice(0,200),time:now});}changed=true;}
         if(email.thread?.length&&(email.thread.length>(ex.thread?.length||0))){ex.thread=email.thread;changed=true;}
-        if(!ex.manualAssignee){const ne=detectEngineer(email);if(ne&&ne!==ex.assignee){ex.assignee=ne;changed=true;}}
+        if(!ex.manualAssignee){const ne=detectEngineer(email);if(ne&&ne!==ex.assignee){sendNotification(ex.id,ex.title,ne,'AI');ex.assignee=ne;changed=true;}}
         if(changed){ex.updated=now;updated++;}
       }else if(replyEmailIds.has(email.id)){
         // Engineer replied directly to vessel — update parent ticket, don't create a new one
@@ -1054,7 +1061,7 @@ async function triggerSync(isAuto){
               if(fresh.latestBody&&fresh.latestBody!==t.latestBody){t.latestBody=fresh.latestBody;changed=true;}
               if(fresh.thread?.length>(t.thread?.length||0)){t.thread=fresh.thread;changed=true;}
               // Re-detect assignee from fresh thread recipients and body
-              if(!t.manualAssignee){const ne=detectEngineer(fresh);if(ne&&ne!==t.assignee){t.assignee=ne;changed=true;}}
+              if(!t.manualAssignee){const ne=detectEngineer(fresh);if(ne&&ne!==t.assignee){sendNotification(t.id,t.title,ne,'AI');t.assignee=ne;changed=true;}}
               // Re-detect status from updated thread data
               const ns=t.category==='Report'?'Resolved':detectStatus(t.replyCount,t.latestBody||'',t.description||'',t.reporter||'',t.created||'',t.category||'',t.title||'',t.externalRecipient||false);
               if(t.status!==ns){t.status=ns;t.updated=new Date().toISOString();recheckUpdated++;changed=true;}
@@ -1206,7 +1213,7 @@ async function showApp(){
   // "Error in PMS" reports from different vessels within 14 days) which caused
   // different users to see different ticket counts.
   reClassifyTickets();
-  renderAll();scheduleRefresh();checkAutoSync();startDbPoll();
+  renderAll();scheduleRefresh();checkAutoSync();startDbPoll();loadNotifications();
 }
 function startDbPoll(){
   if(dbPollTimer)clearInterval(dbPollTimer);
@@ -1216,14 +1223,91 @@ function startDbPoll(){
   // other indefinitely. Classification only happens on page load and after sync.
   dbPollTimer=setInterval(async()=>{
     await loadTicketsFromServer();renderAll();
+    loadNotifications();
   },30*1000);
 }
 // Fetch immediately when user switches back to this tab or focuses the window
 document.addEventListener('visibilitychange',()=>{
-  if(!document.hidden) loadTicketsFromServer().then(()=>renderAll());
+  if(!document.hidden){loadTicketsFromServer().then(()=>renderAll());loadNotifications();}
 });
 window.addEventListener('focus',()=>{
-  loadTicketsFromServer().then(()=>renderAll());
+  loadTicketsFromServer().then(()=>renderAll());loadNotifications();
+});
+
+// ── Notification system ──────────────────────────────────────────
+let _notifPanelOpen=false;
+let _notifCache=[];
+
+function _genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2);}
+
+function sendNotification(ticketId,ticketTitle,toEmail,assignedBy){
+  if(!_isHosted()||!toEmail||!ticketId)return;
+  if(toEmail===(auth.email||'').toLowerCase())return; // don't notify yourself
+  fetch('/api/notifications',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id:_genId(),to_email:toEmail,ticket_id:ticketId,ticket_title:ticketTitle||ticketId,assigned_by:assignedBy||auth.email||'AI'})
+  }).catch(()=>{});
+}
+
+async function loadNotifications(){
+  if(!auth.email||!_isHosted())return;
+  try{
+    const r=await fetch('/api/notifications?email='+encodeURIComponent(auth.email));
+    if(r.ok){_notifCache=await r.json();_renderNotifBell();}
+  }catch(e){}
+}
+
+function _renderNotifBell(){
+  const unread=_notifCache.filter(n=>!n.read_at).length;
+  const badge=document.getElementById('notif-count');
+  if(badge){badge.textContent=unread>9?'9+':unread;badge.style.display=unread>0?'':'none';}
+  if(_notifPanelOpen)_renderNotifList();
+}
+
+function _renderNotifList(){
+  const list=document.getElementById('notif-list');if(!list)return;
+  if(!_notifCache.length){list.innerHTML='<div style="padding:20px;text-align:center;color:#9ca3af;font-size:13px">No notifications</div>';return;}
+  list.innerHTML=_notifCache.map(n=>{
+    const who=n.assigned_by==='AI'?'<span style="background:#ede9fe;color:#7c3aed;border-radius:4px;padding:1px 5px;font-size:10px">Auto-assigned</span>':'by '+escHtml(n.assigned_by.split('@')[0].replace('.',' ').replace(/\b\w/g,c=>c.toUpperCase()));
+    const when=new Date(n.created_at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    const unread=!n.read_at;
+    return `<div onclick="openTicketFromNotif('${escHtml(n.ticket_id)}','${escHtml(n.id)}')" style="padding:11px 14px;border-bottom:1px solid #f1f5f9;cursor:pointer;background:${unread?'#eff6ff':'#fff'};transition:background .15s" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='${unread?'#eff6ff':'#fff'}'">
+      ${unread?'<div style="width:6px;height:6px;background:#2563eb;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle"></div>':'<div style="width:6px;display:inline-block;margin-right:6px"></div>'}
+      <span style="font-size:12px;font-weight:${unread?700:400};color:#0f172a">${escHtml((n.ticket_title||'').slice(0,60))}</span>
+      <div style="font-size:11px;color:#64748b;margin-top:3px;padding-left:12px">Assigned to you ${who}</div>
+      <div style="font-size:10px;color:#94a3b8;margin-top:1px;padding-left:12px">${when}</div>
+    </div>`;
+  }).join('');
+}
+
+function toggleNotifPanel(){
+  _notifPanelOpen=!_notifPanelOpen;
+  const panel=document.getElementById('notif-panel');
+  if(panel)panel.style.display=_notifPanelOpen?'':'none';
+  if(_notifPanelOpen){_renderNotifList();_markVisibleNotifsRead();}
+}
+
+function _markVisibleNotifsRead(){
+  const unreadIds=_notifCache.filter(n=>!n.read_at).map(n=>n.id);
+  if(!unreadIds.length)return;
+  fetch('/api/notifications/mark-read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:unreadIds})}).catch(()=>{});
+  _notifCache.forEach(n=>{if(!n.read_at)n.read_at=new Date().toISOString();});
+  _renderNotifBell();
+}
+
+function markAllNotifsRead(){_markVisibleNotifsRead();_renderNotifList();}
+
+function openTicketFromNotif(ticketId,notifId){
+  toggleNotifPanel();
+  const t=tickets.find(x=>x.id===ticketId);
+  if(t)openTicket(t.id);
+}
+
+// Close notification panel when clicking outside
+document.addEventListener('click',e=>{
+  if(_notifPanelOpen&&!document.getElementById('notif-bell')?.contains(e.target)&&!document.getElementById('notif-panel')?.contains(e.target)){
+    _notifPanelOpen=false;const p=document.getElementById('notif-panel');if(p)p.style.display='none';
+  }
 });
 
 // Re-apply all auto-detections to every ticket that hasn't been manually overridden.
@@ -1610,6 +1694,9 @@ function renderComments(t){
 function setStatus(s){updateTicketField('status',s);document.querySelectorAll('.status-pill').forEach(p=>{p.classList.toggle('active',p.textContent===s);});}
 function updateTicketField(field,val){
   const t=tickets.find(x=>x.id===activeTicketId);if(!t)return;
+  if(field==='assignee'&&val&&val!==t.assignee){
+    sendNotification(t.id,t.title,val,auth.email);
+  }
   t[field]=val;t.updated=new Date().toISOString();
   if(field==='status')t.manualStatus=true;
   if(field==='category')t.manualCategory=true;
