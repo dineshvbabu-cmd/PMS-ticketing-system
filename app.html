@@ -510,7 +510,7 @@ const _isHosted=()=>window.location.protocol==='https:'||(window.location.hostna
 // re-fetched live from Graph when a ticket is opened, so nothing is lost).
 const _slimForDb = t => ({...t, thread:[], latestBody:(t.latestBody||'').slice(0,500)});
 const saveTickets = ()=>{
-  save(STORAGE_KEY,tickets);
+  try{const slim=tickets.map(_slimForDb);save(STORAGE_KEY,slim);}catch(e){}
   if(_isHosted()){
     const slim=tickets.map(_slimForDb);
     fetch('/api/tickets/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(slim)}).catch(()=>{});
