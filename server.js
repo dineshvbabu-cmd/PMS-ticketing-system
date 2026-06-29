@@ -28,7 +28,17 @@ if (process.env.DATABASE_URL) {
       data       JSONB NOT NULL,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
-  `)
+  `).then(() => pool.query(`
+    CREATE TABLE IF NOT EXISTS pms_notifications (
+      id           TEXT PRIMARY KEY,
+      to_email     TEXT NOT NULL,
+      ticket_id    TEXT NOT NULL,
+      ticket_title TEXT,
+      assigned_by  TEXT,
+      created_at   TIMESTAMPTZ DEFAULT NOW(),
+      read_at      TIMESTAMPTZ
+    )
+  `))
     .then(() => console.log('DB ready'))
     .catch(e => console.error('DB init error:', e.message));
 }
@@ -97,6 +107,70 @@ const server = http.createServer(async (req, res) => {
   if (url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', db: !!pool, configured: !!ENV_CONFIG.CLIENT_ID }));
+    return;
+  }
+
+  // GET /api/notifications?email=xxx — fetch unread + last 24h read for a user
+  if (url.startsWith('/api/notifications') && req.method === 'GET' && !url.includes('mark-read')) {
+    if (!pool) { res.writeHead(200,{'Content-Type':'application/json'}); res.end('[]'); return; }
+    const email = new URL('http://x' + req.url).searchParams.get('email') || '';
+    try {
+      const r = await pool.query(
+        `SELECT id, ticket_id, ticket_title, assigned_by, created_at, read_at
+         FROM pms_notifications
+         WHERE to_email = $1 AND created_at > NOW() - INTERVAL '7 days'
+         ORDER BY created_at DESC LIMIT 50`,
+        [email]
+      );
+      res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(JSON.stringify(r.rows));
+    } catch(e) {
+      res.writeHead(500,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({error:e.message}));
+    }
+    return;
+  }
+
+  // POST /api/notifications — create a notification (skip if same ticket+user in last 1h)
+  if (url === '/api/notifications' && req.method === 'POST') {
+    if (!pool) { res.writeHead(200,{'Content-Type':'application/json'}); res.end('{"ok":true}'); return; }
+    try {
+      const body = await readBody(req);
+      const {id, to_email, ticket_id, ticket_title, assigned_by} = JSON.parse(body);
+      await pool.query(
+        `INSERT INTO pms_notifications (id, to_email, ticket_id, ticket_title, assigned_by)
+         SELECT $1,$2,$3,$4,$5
+         WHERE NOT EXISTS (
+           SELECT 1 FROM pms_notifications
+           WHERE ticket_id=$3 AND to_email=$2 AND created_at > NOW() - INTERVAL '1 hour'
+         )`,
+        [id, to_email, ticket_id, ticket_title||'', assigned_by||'AI']
+      );
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end('{"ok":true}');
+    } catch(e) {
+      res.writeHead(500,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({error:e.message}));
+    }
+    return;
+  }
+
+  // POST /api/notifications/mark-read — mark notification IDs as read
+  if (url === '/api/notifications/mark-read' && req.method === 'POST') {
+    if (!pool) { res.writeHead(200,{'Content-Type':'application/json'}); res.end('{"ok":true}'); return; }
+    try {
+      const body = await readBody(req);
+      const {ids} = JSON.parse(body);
+      if (Array.isArray(ids) && ids.length) {
+        await pool.query(
+          `UPDATE pms_notifications SET read_at=NOW() WHERE id=ANY($1) AND read_at IS NULL`,
+          [ids]
+        );
+      }
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end('{"ok":true}');
+    } catch(e) {
+      res.writeHead(500,{'Content-Type':'application/json'});
+      res.end(JSON.stringify({error:e.message}));
+    }
     return;
   }
 
