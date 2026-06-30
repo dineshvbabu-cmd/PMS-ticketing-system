@@ -1823,6 +1823,32 @@ window.clearManualOverrides=function(ticketId){
   saveTickets();renderAll();
   console.log('Cleared manual overrides for',ticketId,'- run Sync Now to re-evaluate.');
 };
+// One-off console utility: directly fetch one known Graph conversation by ID and apply
+// it to a ticket as a reply, bypassing the bulk /conversations listing entirely. Use this
+// when a specific conversation isn't reliably showing up in the paginated listing (e.g. due
+// to Graph ordering inconsistencies on a large mailbox) but its ID is already known from
+// console diagnostics. Usage: forceLinkConversation('AAQkADcz...', 'TKT-...')
+window.forceLinkConversation=async function(convId,ticketId){
+  const t=tickets.find(x=>x.id===ticketId);
+  if(!t){console.warn('No ticket found with id',ticketId);return;}
+  let group=null;
+  try{const gs=await gf(`/groups?$filter=mail eq 'pmslink.support@aships.co.uk'&$select=id,displayName,mail`);group=(gs.value||[])[0];}catch{}
+  if(!group){const mg=await gf('/me/memberOf?$select=id,displayName,mail');group=(mg.value||[]).find(g=>g.mail?.toLowerCase().includes('pmslink'));}
+  if(!group){console.warn('Could not resolve PMS Support group');return;}
+  const email=await _processConv(group.id,{id:convId,topic:'',lastDeliveredDateTime:new Date().toISOString()});
+  if(!email){console.warn('Could not fetch conversation',convId,'- it may not exist or the thread fetch failed.');return;}
+  t.replyCount=(t.replyCount||0)+1;
+  if(email.latestBody||email.bodyPreview)t.latestBody=email.latestBody||email.bodyPreview||'';
+  const existingDates=new Set((t.thread||[]).map(p=>p.date));
+  const newPosts=(email.thread||[]).filter(p=>!existingDates.has(p.date));
+  if(newPosts.length)t.thread=[...(t.thread||[]),...newPosts];
+  t.manualStatus=false;
+  const ns=t.category==='Report'?'Resolved':detectStatus(t.replyCount,t.latestBody,t.description||'',t.reporter||'',t.created||'',t.category||'',t.title||'',true);
+  t.status=ns;
+  t.updated=new Date().toISOString();
+  saveTickets();renderAll();
+  console.log(`Linked conversation ${convId} to ${ticketId}: replyCount=${t.replyCount} status=${t.status}`);
+};
 function postComment(){
   const input=document.getElementById('new-comment'),text=input.value.trim();if(!text)return;
   const t=tickets.find(x=>x.id===activeTicketId);if(!t)return;if(!t.comments)t.comments=[];
