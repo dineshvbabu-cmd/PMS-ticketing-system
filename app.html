@@ -742,16 +742,28 @@ function signOut(){
   setLoginStatus('Signed out.');
 }
 
+// Microsoft Graph throttles aggressively under burst load (429 Too Many Requests) and
+// expects callers to back off and retry using the Retry-After header rather than giving up.
+async function gfFetch(url){
+  for(let attempt=0;attempt<4;attempt++){
+    const r=await fetch(url,{headers:{'Authorization':'Bearer '+auth.accessToken,'ConsistencyLevel':'eventual'}});
+    if(r.status!==429) return r;
+    const wait=Math.max(parseInt(r.headers.get('Retry-After')||'2',10),1)*1000*(attempt+1);
+    console.warn(`[PMS] 429 throttled, retrying in ${wait}ms:`,url);
+    await new Promise(res=>setTimeout(res,wait));
+  }
+  return fetch(url,{headers:{'Authorization':'Bearer '+auth.accessToken,'ConsistencyLevel':'eventual'}});
+}
 async function gf(path){
   if(Date.now()>auth.expiresAt-30000){const ok=await refreshAccessToken();if(!ok)throw new Error('Session expired - please sign in again');}
-  const r=await fetch('https://graph.microsoft.com/v1.0'+path,{headers:{'Authorization':'Bearer '+auth.accessToken,'ConsistencyLevel':'eventual'}});
+  const r=await gfFetch('https://graph.microsoft.com/v1.0'+path);
   if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.error?.message||r.status);}
   return r.json();
 }
 async function gfAll(path,maxP=15){
   let res=[],url='https://graph.microsoft.com/v1.0'+path,p=0;
   while(url&&p<maxP){
-    const r=await fetch(url,{headers:{'Authorization':'Bearer '+auth.accessToken,'ConsistencyLevel':'eventual'}});
+    const r=await gfFetch(url);
     if(!r.ok)break;const d=await r.json();res=res.concat(d.value||[]);url=d['@odata.nextLink']||null;p++;
   }
   return res;
@@ -780,7 +792,8 @@ async function _processConv(groupId,conv){
   }catch(e){console.warn('Thread error:',conv.topic,e.message);return null;}
 }
 
-async function fetchGroupEmails(groupId,afterDate){
+async function fetchGroupEmails(groupId,afterDate,knownRefs){
+  knownRefs=knownRefs||new Set();
   const emails=[];
   // Graph API /groups/.../conversations does not support $filter — fetch all and filter client-side
   const cutoff=new Date(afterDate);
@@ -790,7 +803,7 @@ async function fetchGroupEmails(groupId,afterDate){
   // tenant rejects that query param, fall back to the plain unordered fetch.
   let convs;
   try{
-    const probe=await fetch(`https://graph.microsoft.com/v1.0/groups/${groupId}/conversations?$top=1&$orderby=lastDeliveredDateTime desc&$select=id`,{headers:{'Authorization':'Bearer '+auth.accessToken,'ConsistencyLevel':'eventual'}});
+    const probe=await gfFetch(`https://graph.microsoft.com/v1.0/groups/${groupId}/conversations?$top=1&$orderby=lastDeliveredDateTime desc&$select=id`);
     if(probe.ok){
       convs=await gfAll(`/groups/${groupId}/conversations?$top=50&$orderby=lastDeliveredDateTime desc&$select=id,topic,lastDeliveredDateTime,hasAttachments,preview`,20);
     }else{
@@ -805,8 +818,8 @@ async function fetchGroupEmails(groupId,afterDate){
     .sort((a,b)=>new Date(b.lastDeliveredDateTime)-new Date(a.lastDeliveredDateTime));
   console.log(`[PMS] ${toProcess.length} conversations after cutoff filter`);
   setSyncBar('fetching',`Found ${toProcess.length} conversations - processing in batches...`);
-  const BATCH=5;
-  let skipped=0;
+  const BATCH=3;
+  let skipped=0,droppedExisting=0;
   for(let i=0;i<toProcess.length;i+=BATCH){
     const batch=toProcess.slice(i,i+BATCH);
     setSyncBar('fetching',`Processing ${Math.min(i+BATCH,toProcess.length)} / ${toProcess.length} conversations...`);
@@ -815,9 +828,18 @@ async function fetchGroupEmails(groupId,afterDate){
       if(r.status==='fulfilled'&&r.value){
         emails.push(r.value);
       }else{
-        // _processConv failed or returned null — create a minimal stub so the ticket isn't lost
         const conv=batch[idx];
         if(conv){
+          // If this conversation already backs an existing ticket, do NOT push a
+          // degraded "unknown"/0-reply stub for it — that would overwrite real
+          // tracked data (and can wrongly revert a Resolved ticket to Open). Just
+          // skip it this round; it'll be retried on the next sync.
+          if(knownRefs.has(conv.id)){
+            droppedExisting++;
+            console.warn('Skipped stub for already-tracked conversation (would corrupt existing ticket):',conv.topic);
+            return;
+          }
+          // Otherwise this is a brand-new conversation — create a minimal stub so the ticket isn't lost entirely.
           skipped++;
           console.warn('Stub created for failed conversation:',conv.topic);
           emails.push({
@@ -835,7 +857,8 @@ async function fetchGroupEmails(groupId,afterDate){
       }
     });
   }
-  if(skipped)console.warn(`${skipped} conversations used stub fallback (thread fetch failed)`);
+  if(skipped)console.warn(`${skipped} new conversations used stub fallback (thread fetch failed)`);
+  if(droppedExisting)console.warn(`${droppedExisting} already-tracked conversations skipped this round due to fetch failure (will retry next sync)`);
   return emails;
 }
 
@@ -989,7 +1012,7 @@ async function triggerSync(isAuto){
       let group=null;
       try{const gs=await gf(`/groups?$filter=mail eq 'pmslink.support@aships.co.uk'&$select=id,displayName,mail`);group=(gs.value||[])[0];}catch{}
       if(!group){const mg=await gf('/me/memberOf?$select=id,displayName,mail');group=(mg.value||[]).find(g=>g.mail?.toLowerCase().includes('pmslink'));}
-      if(group){src=group.displayName;capturedGroupId=group.id;emails=await fetchGroupEmails(group.id,after);}
+      if(group){src=group.displayName;capturedGroupId=group.id;const knownRefs=new Set(tickets.filter(t=>t.outlookRef).map(t=>t.outlookRef));emails=await fetchGroupEmails(group.id,after,knownRefs);}
       else{setSyncBar('done','PMS Support group mailbox not found — ensure you are a member of pmslink.support@aships.co.uk');btn.disabled=false;return;}
     }catch(e){setSyncBar('done','Group mailbox error: '+e.message);btn.disabled=false;return;}
     if(!emails.length){setSyncBar('done','No new emails in group mailbox');btn.disabled=false;scheduleAutoSync();return;}
