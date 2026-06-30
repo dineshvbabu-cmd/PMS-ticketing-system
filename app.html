@@ -285,6 +285,7 @@ textarea.form-control{resize:vertical;min-height:80px}
       <select id="f-priority" onchange="renderTicketList()"><option value="">All Priority</option><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select>
       <select id="f-engineer" onchange="renderTicketList()"><option value="">All Engineers</option><option value="v.boppudi@aships.co.uk">V. Boppudi</option><option value="a.desingh@aships.co.uk">A. Desingh</option><option value="c.borse@aships.co.uk">C. Borse</option><option value="d.babu@aships.co.uk">D. Babu</option></select>
       <select id="f-category" onchange="renderTicketList()"><option value="">All Categories</option><option>Bug Report</option><option>Vessel Support</option><option>Feature Request</option><option>Access Issue</option><option>Data Issue</option><option>Integration</option><option>Performance</option><option>Report</option><option>Other</option></select>
+      <select id="f-source" onchange="renderTicketList()"><option value="">All Sources</option><option value="outlook">Email</option><option value="sheets">Sheet</option><option value="manual">Manual</option></select>
       <span id="ticket-count" style="font-size:12px;color:#94a3b8;margin-left:auto"></span>
     </div>
     <div id="bulk-bar">
@@ -1514,11 +1515,13 @@ function filteredTickets(){
   const s=(document.getElementById('search')||{}).value?.toLowerCase()||'';
   const fp=(document.getElementById('f-priority')||{}).value||'';
   const fe=(document.getElementById('f-engineer')||{}).value||'';const fc=(document.getElementById('f-category')||{}).value||'';
+  const fs=(document.getElementById('f-source')||{}).value||'';
   return tickets.filter(t=>{
     if(!inRange(t))return false;if(activeCatFilter&&t.category!==activeCatFilter)return false;
     if(activeVesselSubFilter&&(t.vesselSupportType||'General')!==activeVesselSubFilter)return false;
     if(activeStatusFilters.size>0&&!activeStatusFilters.has(t.status))return false;
     if(fp&&t.priority!==fp)return false;if(fe&&t.assignee!==fe)return false;if(fc&&t.category!==fc)return false;
+    if(fs&&(t.source||'manual')!==fs)return false;
     if(s&&!t.title?.toLowerCase().includes(s)&&!t.id?.toLowerCase().includes(s)&&!t.reporter?.toLowerCase().includes(s))return false;
     return true;
   });
