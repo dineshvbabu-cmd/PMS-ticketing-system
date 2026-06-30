@@ -1023,6 +1023,13 @@ async function triggerSync(isAuto){
     if(!emails.length){setSyncBar('done','No new emails in group mailbox');btn.disabled=false;scheduleAutoSync();return;}
     setSyncBar('classifying',`Processing ${emails.length} emails from ${src}...`);
     const byRef={};tickets.forEach(t=>{if(t.outlookRef)byRef[t.outlookRef]=t;});
+    {
+      const _wid='AAQkADczNzA4MDQyLTExMzYtNDAyOC1iM2MxLWJjYAxNmEyM8YwAQAO3EEC8VyCZ3tNlRPmjb-Q=';
+      const _wt=byRef[_wid];
+      console.log(`[PMS][DEBUG] byRef lookup for watched conv id: ${_wt?`MATCHED ticket id=${_wt.id} title="${_wt.title}" status=${_wt.status} manualStatus=${_wt.manualStatus} outlookRef=${_wt.outlookRef}`:'no match (not in byRef)'}`);
+      const _balhamTicket=tickets.find(t=>t.id==='TKT-1782708653457-7q4');
+      if(_balhamTicket)console.log(`[PMS][DEBUG] Balham ticket TKT-1782708653457-7q4: outlookRef=${_balhamTicket.outlookRef} status=${_balhamTicket.status} manualStatus=${_balhamTicket.manualStatus} source=${_balhamTicket.source}`);
+    }
     // Reply detection: if a group conversation thread contains a RE: reply from an engineer,
     // match it to an existing open ticket by normalized subject so it updates replyCount
     // rather than creating a duplicate ticket.
