@@ -994,6 +994,63 @@ function normalizeSubj(s){
   return t.replace(/[^a-z0-9]+/g,' ').trim();
 }
 
+// Ask Claude to read the full latest reply and judge whether the ticket is genuinely
+// resolved, vs. the vessel asking a question / requesting clarification / reporting the
+// issue is still outstanding. The keyword heuristic in detectStatus() can't tell these
+// apart (e.g. a vessel asking "could you confirm if this part is the right one?" contains
+// none of the obvious red flags but isn't a resolution). Falls back to trusting the
+// heuristic (returns true) if there's no API key configured or the call fails, so this
+// never blocks a sync.
+async function aiVerifyResolution(latestBody,title,description){
+  if(!(cfg.apiKey||ANTHROPIC_KEY_SERVER))return true;
+  if(!latestBody||!latestBody.trim())return true;
+  try{
+    const text=await claudeCall(
+      'You are triaging a PMS (Planned Maintenance System) support ticket thread for a shipping company. '+
+      'You will see the ticket title, the original issue, and the latest reply email in the thread. '+
+      'Read the latest reply carefully and decide: is the ticket genuinely RESOLVED (the reply confirms the requested '+
+      'action/task is complete and nothing further is needed), or NOT_RESOLVED (the reply asks a question, requests '+
+      'clarification, reports the issue is still present or only partly addressed, or is otherwise inconclusive)? '+
+      'Do not just pattern-match words like "done", "noted", or "checked" out of context — read the full meaning. '+
+      'Reply with exactly one word: RESOLVED or NOT_RESOLVED.',
+      `Ticket title: ${title}\nOriginal issue: ${(description||'').slice(0,800)}\n\nLatest reply in thread:\n${latestBody.slice(0,3000)}`
+    );
+    return /^\s*RESOLVED\b/i.test(text.trim());
+  }catch(e){
+    console.warn('[PMS] AI resolution check failed, keeping heuristic result:',e.message);
+    return true;
+  }
+}
+
+// After the heuristic pass (reClassifyTickets) has settled every ticket's status, take the
+// tickets it just decided are "Resolved" off a vessel reply and double-check the most
+// ambiguous of them with Claude before trusting that call. Scoped to vessel-facing tickets
+// with at least one reply (the only case where a misread clarification request matters),
+// capped per run so a large backlog of never-checked tickets gets verified gradually over
+// several syncs instead of one expensive burst, and skips any ticket whose latestBody has
+// already been checked against its current content (so a stable, already-confirmed ticket
+// isn't re-billed every sync).
+async function aiRecheckResolutions(){
+  if(!(cfg.apiKey||ANTHROPIC_KEY_SERVER))return;
+  const candidates=tickets.filter(t=>
+    t.source==='outlook'&&!t.manualStatus&&t.status==='Resolved'&&
+    t.externalRecipient&&(t.replyCount||0)>=1&&t.latestBody&&
+    t.aiCheckedBody!==t.latestBody
+  ).sort((a,b)=>new Date(b.updated||0)-new Date(a.updated||0)).slice(0,30);
+  if(!candidates.length)return;
+  setSyncBar('classifying',`AI-verifying ${candidates.length} resolved ticket${candidates.length!==1?'s':''}...`);
+  let downgraded=0;
+  for(let i=0;i<candidates.length;i+=4){
+    const batch=candidates.slice(i,i+4);
+    await Promise.all(batch.map(async t=>{
+      const resolved=await aiVerifyResolution(t.latestBody,t.title,t.description);
+      t.aiCheckedBody=t.latestBody;t.aiVerifiedResolved=resolved;
+      if(!resolved){t.status='In Progress';t.updated=new Date().toISOString();downgraded++;}
+    }));
+  }
+  if(downgraded>0)console.log(`[PMS] AI resolution check: ${downgraded} ticket(s) reverted from Resolved to In Progress (reply was a clarification/question, not a confirmation)`);
+}
+
 async function triggerSync(isAuto){
   if(!auth.accessToken){if(!isAuto)toast('Please sign in first','error');return;}
   const btn=document.getElementById('sync-btn');btn.disabled=true;
@@ -1167,6 +1224,7 @@ async function triggerSync(isAuto){
     // Run full re-classification so updated latestBody / thread data feeds into
     // text-based engineer detection (detectEngineerFromText) and status rules
     reClassifyTickets();
+    await aiRecheckResolutions();
     saveTickets();renderAll();
     const _now=new Date();
     localStorage.setItem(SYNC_KEY,_now.toISOString()); // ISO for reliable parsing
@@ -1438,7 +1496,13 @@ function reClassifyTickets(){
     // Status
     if(!t.manualStatus){
       const ns=t.category==='Report'?'Resolved':detectStatus(t.replyCount||0,t.latestBody||'',t.description||'',t.reporter||'',t.created||'',t.category||'',t.title||'',t.externalRecipient||false);
-      if(t.status!==ns){t.status=ns;tc=true;}
+      // If Claude already read this exact latest reply and decided it was NOT actually a
+      // resolution (a clarification request, not a confirmation), don't let the keyword
+      // heuristic re-flip it back to Resolved every sync — only trust the heuristic again
+      // once a new reply changes latestBody (see aiRecheckResolutions).
+      const aiBlocksResolve=ns==='Resolved'&&t.aiCheckedBody===t.latestBody&&t.aiVerifiedResolved===false;
+      const finalNs=aiBlocksResolve?'In Progress':ns;
+      if(t.status!==finalNs){t.status=finalNs;tc=true;}
     }
     // Assignee
     if(!t.manualAssignee){
