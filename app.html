@@ -1039,6 +1039,21 @@ async function triggerSync(isAuto){
         const ns=normalizeSubj(t.title);if(ns&&!openByNormSubj[ns])openByNormSubj[ns]=t;
       }
     });
+    {
+      const _balhamTicket=tickets.find(t=>t.id==='TKT-1782708653457-7q4');
+      const _wid='AAQkADczNzA4MDQyLTExMzYtNDAyOC1iM2MxLWJjYAxNmEyM8YwAQAO3EEC8VyCZ3tNlRPmjb-Q=';
+      const _we=emails.find(e=>e.id===_wid);
+      if(_balhamTicket){
+        const tns=normalizeSubj(_balhamTicket.title);
+        console.log(`[PMS][DEBUG] Ticket normSubj="${tns}" (len=${tns.length}) lookupKeyExists=${openByNormSubj.hasOwnProperty(tns)}`);
+      }
+      if(_we){
+        const ens=normalizeSubj(_we.subject||'');
+        console.log(`[PMS][DEBUG] Watched email found in emails[]: subject="${_we.subject}" normSubj="${ens}" (len=${ens.length}) from=${_we.from?.emailAddress?.address} receivedDateTime=${_we.receivedDateTime} exactMatchInLookup=${openByNormSubj.hasOwnProperty(ens)}`);
+      }else{
+        console.log(`[PMS][DEBUG] Watched email id=${_wid} NOT present in emails[] this sync (${emails.length} total)`);
+      }
+    }
     const replyEmailIds=new Set(emails.filter(e=>{
       if(byRef[e.id]) return false;
       if(!(e.from?.emailAddress?.address||'').toLowerCase().endsWith('@aships.co.uk')) return false;
