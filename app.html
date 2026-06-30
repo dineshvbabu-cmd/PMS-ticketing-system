@@ -767,7 +767,7 @@ async function _processConv(groupId,conv){
     posts.forEach(p=>{(p.toRecipients||[]).forEach(r=>allTo.push(r));(p.ccRecipients||[]).forEach(r=>allCc.push(r));(p.newParticipants||[]).forEach(r=>allTo.push(r));});
     const replyCount=posts.length>1?posts.length-1:0;
     // Gather all post bodies to give detectStatus more signal
-    const allBodies=posts.map(p=>(p.body?.content||'').replace(/<[^>]+>/g,'').replace(/\s+/g,' ').slice(0,200)).join(' ');
+    const allBodies=posts.map(p=>(p.body?.content||'').replace(/<[^>]+>/g,'').replace(/\s+/g,' ').slice(0,500)).join(' ');
     // Store thread posts for display in ticket modal (up to 10 posts, 600 chars each)
     const threadPosts=posts.slice(0,10).map(p=>({
       from:p.from?.emailAddress?.address||p.sender?.emailAddress?.address||'',
@@ -850,12 +850,20 @@ function detectStatus(replyCount, latestBody, description, reporter, created, ca
   const cat=(category||'').toLowerCase();
   const all=last+' '+desc;
 
+  // Action-request subject (add/update in PMS, spare addition) — engineer confirms the
+  // task itself is done, regardless of reply count (hoisted above Rule 1 so a single
+  // outbound engineer email asserting completion is enough, not just a reply).
+  const actionSubj=/\bin pms\b|\bfor pms\b|add.*pms|pms.*add|updat.*pms|pms.*updat|add.*spar|spar.*add|add.*job|job.*add|add.*component|add.*item|add.*inventory|add.*certif|\/\/ add|\/\/ updat|pms.*spare|addition of|addition in|part.*addition|spare.*addition/;
+
   // Rule 1: Internal sender (@aships.co.uk or known engineer)
   const rep=(reporter||'').toLowerCase();
   const isInternal=ENGINEERS.some(e=>rep===e.email.toLowerCase())||rep.endsWith('@aships.co.uk');
   if(isInternal){
     // Pure internal email (no external recipients) = task done
     if(!hasExternalRecipient) return 'Resolved';
+    // Engineer emailed vessel about an action they already completed (e.g. spare
+    // "Added in PMS") → Resolved even before the vessel acknowledges
+    if((cat==='vessel support'||!cat)&&actionSubj.test(subj)) return 'Resolved';
     // Engineer reached out to vessel (external recipient), no reply yet → waiting
     if(replyCount===0) return 'In Progress';
     // Engineer emailed vessel and there are replies — fall through to check resolution
@@ -873,7 +881,6 @@ function detectStatus(replyCount, latestBody, description, reporter, created, ca
   if(replyCount>=1&&engNames.some(n=>tail.includes(n))) return 'Resolved';
 
   // Rule 6: Action-request subject (add/update in PMS, spare addition) + reply → Resolved
-  const actionSubj=/\bin pms\b|\bfor pms\b|add.*pms|pms.*add|updat.*pms|pms.*updat|add.*spar|spar.*add|add.*job|job.*add|add.*component|add.*item|add.*inventory|add.*certif|\/\/ add|\/\/ updat|pms.*spare|addition of|addition in|part.*addition|spare.*addition/;
   if(cat==='vessel support'&&actionSubj.test(subj)&&replyCount>=1) return 'Resolved';
 
   // Rule 7: Explicit resolution language anywhere in combined thread text → Resolved
@@ -1060,6 +1067,13 @@ async function triggerSync(isAuto){
               if(fresh.replyCount!==t.replyCount){t.replyCount=fresh.replyCount;changed=true;}
               if(fresh.latestBody&&fresh.latestBody!==t.latestBody){t.latestBody=fresh.latestBody;changed=true;}
               if(fresh.thread?.length>(t.thread?.length||0)){t.thread=fresh.thread;changed=true;}
+              // Fix reporter if it was stuck as 'unknown'/blank from an earlier failed/stub fetch —
+              // a wrong reporter makes detectStatus's internal-sender check always fail
+              const freshFrom=fresh.from?.emailAddress?.address||'';
+              if(freshFrom&&(!t.reporter||t.reporter==='unknown')){t.reporter=freshFrom;changed=true;}
+              // Recompute external-recipient flag from the fresh thread (stub fallback always stored false)
+              const freshExternal=[...(fresh.toRecipients||[]),...(fresh.ccRecipients||[])].map(r=>(r.emailAddress?.address||'').toLowerCase()).some(a=>a&&!a.endsWith('@aships.co.uk'));
+              if(freshExternal!==t.externalRecipient){t.externalRecipient=freshExternal;changed=true;}
               // Re-detect assignee from fresh thread recipients and body
               if(!t.manualAssignee){const ne=detectEngineer(fresh);if(ne&&ne!==t.assignee){sendNotification(t.id,t.title,ne,'AI');t.assignee=ne;changed=true;}}
               // Re-detect status from updated thread data
