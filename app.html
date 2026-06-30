@@ -944,7 +944,13 @@ function detectPriority(subject,body){
   return 'Medium';
 }
 
-function normalizeSubj(s){return(s||'').replace(/^(re|fw|fwd):\s*/gi,'').trim().toLowerCase();}
+function normalizeSubj(s){
+  let t=(s||'').toLowerCase();
+  while(/^(re|fw|fwd):\s*/.test(t))t=t.replace(/^(re|fw|fwd):\s*/,'');
+  // Collapse all punctuation differences (":" vs "//" vs "-" etc.) so a reply's raw
+  // subject still matches an AI-paraphrased ticket title with the same words.
+  return t.replace(/[^a-z0-9]+/g,' ').trim();
+}
 
 async function triggerSync(isAuto){
   if(!auth.accessToken){if(!isAuto)toast('Please sign in first','error');return;}
