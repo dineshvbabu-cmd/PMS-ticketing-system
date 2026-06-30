@@ -826,6 +826,10 @@ async function fetchGroupEmails(groupId,afterDate,knownRefs){
     const results=await Promise.allSettled(batch.map(c=>_processConv(groupId,c)));
     results.forEach((r,idx)=>{
       if(r.status==='fulfilled'&&r.value){
+        const _t=(r.value.subject||'').toLowerCase();
+        if(_t.includes('balham')&&_t.includes('camera')){
+          console.log(`[PMS][WATCH2] Processed: id=${r.value.id} subject="${r.value.subject}" from=${r.value.from?.emailAddress?.address} replyCount=${r.value.replyCount} receivedDateTime=${r.value.receivedDateTime}`);
+        }
         emails.push(r.value);
       }else{
         const conv=batch[idx];
